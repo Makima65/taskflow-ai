@@ -16,13 +16,16 @@ import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/c
 
 import { generateTaskWithAI } from "./actions";
 
+// 1. Import Supabase Auth UI components
+import { Auth } from "@supabase/auth-ui-react";
+import { ThemeSupa } from "@supabase/auth-ui-shared";
+
 type Task = {
   id: string;
   title: string;
   status: "todo" | "in-progress" | "done";
 };
 
-// 1. We added the 'onDelete' prop here
 function DraggableTaskCard({ task, onDelete }: { task: Task; onDelete: (id: string) => void }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: task.id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
@@ -30,17 +33,13 @@ function DraggableTaskCard({ task, onDelete }: { task: Task; onDelete: (id: stri
   return (
     <div ref={setNodeRef} style={style} {...listeners} {...attributes} className="cursor-grab active:cursor-grabbing z-10 relative group">
       <Card className="relative">
-        <CardHeader className="p-4 pr-10"> {/* Added right padding so text doesn't hit the button */}
+        <CardHeader className="p-4 pr-10">
           <CardTitle className="text-md">{task.title}</CardTitle>
         </CardHeader>
-        
-        {/* 2. The Delete Button */}
         <Button
           variant="ghost"
           size="sm"
-          // It stays invisible (opacity-0) until you hover over the card (group-hover:opacity-100)
           className="absolute top-2 right-2 h-6 w-6 p-0 opacity-0 transition-opacity group-hover:opacity-100 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
-          // We MUST stop propagation, otherwise clicking the button picks up the card to drag it!
           onPointerDown={(e) => e.stopPropagation()} 
           onClick={() => onDelete(task.id)}
         >
@@ -51,7 +50,6 @@ function DraggableTaskCard({ task, onDelete }: { task: Task; onDelete: (id: stri
   );
 }
 
-// 3. We added 'onDelete' here so the column can pass it to the cards
 function DroppableColumn({ id, title, tasks, onDelete }: { id: string; title: string; tasks: Task[]; onDelete: (id: string) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: id });
   return (
@@ -65,20 +63,54 @@ function DroppableColumn({ id, title, tasks, onDelete }: { id: string; title: st
 }
 
 export default function Home() {
+  // 2. Add a Session state to track if the user is logged in
+  const [session, setSession] = useState<any>(null);
+  
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [isAILoading, setIsAILoading] = useState(false); 
 
-  useEffect(() => { fetchTasks(); }, []);
+  // 3. Listen for log ins and log outs
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 4. Only fetch tasks if a user is successfully logged in
+  useEffect(() => {
+    if (session?.user) {
+      fetchTasks();
+    } else {
+      setTasks([]); // Clear the board when logged out
+    }
+  }, [session]);
 
   const fetchTasks = async () => {
-    const { data, error } = await supabase.from("tasks").select("*");
+    // Securely fetch ONLY this specific user's tasks
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", session.user.id);
     if (!error) setTasks(data || []);
   };
 
   const handleAddTask = async () => {
     if (newTaskTitle.trim() === "") return;
-    const newTask = { title: newTaskTitle, status: "todo" };
+    // Attach the unique user_id to the new task
+    const newTask = { 
+      title: newTaskTitle, 
+      status: "todo",
+      user_id: session.user.id
+    };
     const { data, error } = await supabase.from("tasks").insert([newTask]).select();
     if (!error && data) {
       setTasks([...tasks, data[0]]);
@@ -92,7 +124,9 @@ export default function Home() {
     const aiResult = await generateTaskWithAI(newTaskTitle);
     
     if (aiResult && aiResult.title) {
-      const { data, error } = await supabase.from("tasks").insert([aiResult]).select();
+      // Attach the unique user_id to the AI result
+      const finalTask = { ...aiResult, user_id: session.user.id };
+      const { data, error } = await supabase.from("tasks").insert([finalTask]).select();
       if (!error && data) {
         setTasks([...tasks, data[0]]);
         setNewTaskTitle(""); 
@@ -116,48 +150,70 @@ export default function Home() {
     await supabase.from("tasks").update({ status: newStatus }).eq("id", taskId);
   };
 
-  // 4. The actual Delete Function
   const handleDeleteTask = async (taskId: string) => {
-    // Instantly remove it from the screen (Optimistic UI)
     setTasks((prev) => prev.filter((task) => task.id !== taskId));
-    
-    // Silently delete it from Supabase in the background
     const { error } = await supabase.from("tasks").delete().eq("id", taskId);
     if (error) {
       console.error("Error deleting task:", error);
     }
   };
 
+  // 5. If they are NOT logged in, show the Login Card!
+  if (!session) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950">
+        <Card className="w-full max-w-md p-8 shadow-lg">
+          <h1 className="mb-8 text-center text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            TaskFlow AI
+          </h1>
+          <Auth
+            supabaseClient={supabase}
+            appearance={{ theme: ThemeSupa }}
+            providers={[]} // We will stick to email/password for right now
+          />
+        </Card>
+      </div>
+    );
+  }
+
+  // 6. If they ARE logged in, show the main app
   return (
     <main className="min-h-screen bg-zinc-50 p-8 dark:bg-zinc-950">
       <div className="mb-8 flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">TaskFlow AI</h1>
 
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>+ Add Task</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Brain-dump your task</DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col gap-4 py-4">
-              <Input
-                placeholder="e.g., I need to finish that giant report for Sarah tomorrow..."
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-              />
-              <div className="flex gap-2">
-                <Button variant="outline" className="w-1/2" onClick={handleAddTask}>
-                  Normal Save
-                </Button>
-                <Button className="w-1/2" onClick={handleAITask} disabled={isAILoading}>
-                  {isAILoading ? "Thinking..." : "✨ AI Magic"}
-                </Button>
+        <div className="flex items-center gap-4">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button>+ Add Task</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Brain-dump your task</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-4 py-4">
+                <Input
+                  placeholder="e.g., I need to finish that giant report for Sarah tomorrow..."
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <Button variant="outline" className="w-1/2" onClick={handleAddTask}>
+                    Normal Save
+                  </Button>
+                  <Button className="w-1/2" onClick={handleAITask} disabled={isAILoading}>
+                    {isAILoading ? "Thinking..." : "✨ AI Magic"}
+                  </Button>
+                </div>
               </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+          
+          {/* We added a Sign Out button! */}
+          <Button variant="ghost" onClick={() => supabase.auth.signOut()}>
+            Sign Out
+          </Button>
+        </div>
       </div>
 
       <DndContext onDragEnd={handleDragEnd}>
