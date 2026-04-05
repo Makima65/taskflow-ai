@@ -33,6 +33,7 @@ type Task = {
   due_date?: string | null;
   created_at?: string;
   subtasks?: Subtask[]; 
+  is_trashed?: boolean; // ✨ NEW: Tracks if the task is in the trash bin
 };
 
 function getRelativeTime(dateString?: string) {
@@ -231,6 +232,7 @@ function AnimatedCheckbox({ id, checked, onChange, label }: { id: string; checke
     </>
   );
 }
+
 function FancyEditButton({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -294,7 +296,7 @@ function CustomConfirmModal({ isOpen, onClose, onConfirm, title, description }: 
             onClick={() => { onConfirm(); onClose(); }} 
             className="w-1/2 h-[35px] rounded-[10px] border-none cursor-pointer font-semibold bg-[#ff726d] hover:bg-[#ff4942] text-white transition-colors"
           >
-            Delete
+            Confirm
           </button>
         </div>
 
@@ -411,10 +413,8 @@ function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUpdateSub
         </Card>
       </div>
 
-      {/* Edit Task Dialog (Omitted internal details for brevity since they didn't change) */}
       <Dialog open={isEditing} onOpenChange={setIsEditing}>
          <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
-          {/* Internal dialog content same as before */}
           <DialogHeader>
             <DialogTitle className="sr-only">Edit Task</DialogTitle>
             <DialogDescription className="sr-only">Edit task details.</DialogDescription>
@@ -444,25 +444,18 @@ function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUpdateSub
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Subtasks</label>
                 <div className="flex flex-col gap-2 mb-2 w-full">
-  {task.subtasks?.map((subtask: any) => (
-    <div key={subtask.id} className="flex items-center justify-between group/sub w-full">
-      {/* 🟢 Replaced the native checkbox with the new animated one */}
-      <AnimatedCheckbox 
-        id={subtask.id}
-        checked={subtask.is_completed}
-        onChange={() => toggleSubtask(subtask)}
-        label={subtask.title}
-      />
-      
-      <button 
-        onClick={() => deleteSubtask(subtask.id)} 
-        className="text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity text-xs p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md"
-      >
-        ✕
-      </button>
-    </div>
-  ))}
-</div>
+                  {task.subtasks?.map((subtask: any) => (
+                    <div key={subtask.id} className="flex items-center justify-between group/sub w-full">
+                      <AnimatedCheckbox 
+                        id={subtask.id}
+                        checked={subtask.is_completed}
+                        onChange={() => toggleSubtask(subtask)}
+                        label={subtask.title}
+                      />
+                      <button onClick={() => deleteSubtask(subtask.id)} className="text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity text-xs p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md">✕</button>
+                    </div>
+                  ))}
+                </div>
                 <FloatingInput label="+ Add a subtask (Press Enter)" value={newSubtask} onChange={(e: any) => setNewSubtask(e.target.value)} onKeyDown={handleAddSubtask} />
               </div>
               <div className="flex gap-4">
@@ -531,7 +524,6 @@ function DroppableColumn({ column, tasks, session, onRequestTaskDelete, onEditTa
           </div>
         )}
         
-        {/* TRIPLE DOT MENU FOR COLUMN */}
         <div className="relative">
           <button 
             onClick={() => setMenuOpen(!menuOpen)}
@@ -546,7 +538,6 @@ function DroppableColumn({ column, tasks, session, onRequestTaskDelete, onEditTa
 
           {menuOpen && (
             <>
-              {/* Invisible overlay to close dropdown when clicking outside */}
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
               
               <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-zinc-800 rounded-md shadow-lg border border-zinc-200 dark:border-zinc-700 z-50 overflow-hidden text-sm">
@@ -620,7 +611,6 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
 
-  // Global State for Custom Delete Modal
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     title: "",
@@ -768,9 +758,7 @@ export default function Home() {
     const taskId = active.id as string;
 
     if (over.id === "trash") {
-      // Direct drag-to-trash avoids modal since dragging implies strong intent, 
-      // but you can wrap this in a modal too if you prefer!
-      executeDeleteTask(taskId);
+      executeSoftDeleteTask(taskId);
       return;
     }
 
@@ -786,18 +774,33 @@ export default function Home() {
     await logActivity(taskId, "Moved", `Moved to ${destColumn}`);
   };
 
-  const executeDeleteTask = async (taskId: string) => {
+  // ✨ NEW: Soft Delete Logic (moves to trash)
+  const executeSoftDeleteTask = async (taskId: string) => {
+    setTasks((prev) => prev.map((task) => task.id === taskId ? { ...task, is_trashed: true } : task));
+    const { error } = await supabase.from("tasks").update({ is_trashed: true }).eq("id", taskId);
+    if (!error) toast.info("Task moved to trash 🗑️"); 
+  };
+
+  // ✨ NEW: Hard Delete Logic (permanent delete from trash bin)
+  const executeHardDeleteTask = async (taskId: string) => {
     setTasks((prev) => prev.filter((task) => task.id !== taskId));
     const { error } = await supabase.from("tasks").delete().eq("id", taskId);
-    if (!error) toast.info("Task deleted"); 
+    if (!error) toast.success("Task permanently deleted"); 
+  };
+
+  // ✨ NEW: Restore Task Logic
+  const executeRestoreTask = async (taskId: string) => {
+    setTasks((prev) => prev.map((task) => task.id === taskId ? { ...task, is_trashed: false } : task));
+    const { error } = await supabase.from("tasks").update({ is_trashed: false }).eq("id", taskId);
+    if (!error) toast.success("Task restored! ♻️"); 
   };
 
   const requestTaskDelete = (taskId: string) => {
     setModalConfig({
       isOpen: true,
-      title: "Delete task?",
-      description: "Are you sure you want to delete this task? This action cannot be undone.",
-      onConfirm: () => executeDeleteTask(taskId)
+      title: "Move to Trash?",
+      description: "Are you sure you want to remove this task? You can restore it later from the Trash Bin.",
+      onConfirm: () => executeSoftDeleteTask(taskId)
     });
   };
 
@@ -817,7 +820,11 @@ export default function Home() {
     toast.success("Successfully signed out!");
   };
 
-  const processedTasks = tasks
+  // ✨ NEW: Separate active and trashed tasks
+  const trashedTasks = tasks.filter(t => t.is_trashed);
+  const activeTasks = tasks.filter(t => !t.is_trashed);
+
+  const processedTasks = activeTasks
     .filter(t => filterPriority === "all" || t.priority === filterPriority)
     .sort((a, b) => {
       if (sortBy === "priority") {
@@ -878,7 +885,6 @@ export default function Home() {
     <main className="min-h-screen bg-zinc-50 p-8 dark:bg-zinc-950">
       <Toaster richColors position="bottom-right" /> 
       
-      {/* GLOBAL DELETE CONFIRMATION MODAL */}
       <CustomConfirmModal 
         isOpen={modalConfig.isOpen}
         title={modalConfig.title}
@@ -894,6 +900,45 @@ export default function Home() {
 
         <div className="flex items-center gap-4">
           <ThemeToggle />
+
+          {/* ✨ NEW: TRASH BIN MODAL */}
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="ghost" className="rounded-[20px] text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+                🗑️ Trash {trashedTasks.length > 0 && `(${trashedTasks.length})`}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Trash Bin 🗑️</DialogTitle>
+                <DialogDescription>
+                  Recover accidentally deleted tasks or permanently erase them.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-3 py-4">
+                {trashedTasks.length === 0 ? (
+                  <div className="text-center py-8">
+                    <span className="text-4xl">🍃</span>
+                    <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Your trash bin is empty.</p>
+                  </div>
+                ) : (
+                  trashedTasks.map(task => (
+                    <div key={task.id} className="flex items-center justify-between p-3 border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 group/trashitem">
+                      <span className="font-medium text-sm text-zinc-700 dark:text-zinc-300 truncate pr-4">{task.title}</span>
+                      <div className="flex gap-2 opacity-100 sm:opacity-0 sm:group-hover/trashitem:opacity-100 transition-opacity">
+                        <Button size="sm" variant="outline" className="h-7 text-xs bg-white dark:bg-zinc-800 hover:text-green-600 dark:hover:text-green-400" onClick={() => executeRestoreTask(task.id)}>
+                          ♻️ Restore
+                        </Button>
+                        <Button size="sm" variant="destructive" className="h-7 text-xs bg-red-500 hover:bg-red-600" onClick={() => executeHardDeleteTask(task.id)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           <Dialog>
             <DialogTrigger asChild>
