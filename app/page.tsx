@@ -20,6 +20,8 @@ type Task = {
   id: string;
   title: string;
   status: "todo" | "in-progress" | "done";
+  priority?: "high" | "medium" | "low";
+  due_date?: string | null;
 };
 
 // ========================================================================
@@ -53,42 +55,141 @@ function FloatingInput({ label, type = "text", value, onChange }: { label: strin
 // ========================================================================
 // 2. TASK CARDS & COLUMNS
 // ========================================================================
-function DraggableTaskCard({ task, onDelete }: { task: Task; onDelete: (id: string) => void }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: task.id });
+
+function FancyEditButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onPointerDown={(e) => e.stopPropagation()} // Prevents dragging when clicking the button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="group relative flex h-8 w-[85px] items-center justify-start rounded-lg border-none bg-[rgb(168,38,255)] px-4 text-xs font-medium text-white shadow-[4px_4px_0px_rgb(140,32,212)] transition-all duration-300 hover:text-transparent active:translate-x-[3px] active:translate-y-[3px] active:shadow-[2px_2px_0px_rgb(140,32,212)]"
+    >
+      Edit
+      <svg
+        className="absolute right-4 w-[11px] fill-white transition-all duration-300 group-hover:right-[40%]"
+        viewBox="0 0 512 512"
+      >
+        <path d="M410.3 231l11.3-11.3-33.9-33.9-62.1-62.1L291.7 89.8l-11.3 11.3-22.6 22.6L58.6 322.9c-10.4 10.4-18 23.3-22.2 37.4L1 480.7c-2.5 8.4-.2 17.5 6.1 23.7s15.3 8.5 23.7 6.1l120.3-35.4c14.1-4.2 27-11.8 37.4-22.2L387.7 253.7 410.3 231zM160 399.4l-9.1 22.7c-4 3.1-8.5 5.4-13.3 6.9L59.4 452l23-78.1c1.4-4.9 3.8-9.4 6.9-13.3l22.7-9.1v32c0 8.8 7.2 16 16 16h32zM362.7 18.7L348.3 33.2 325.7 55.8 314.3 67.1l33.9 33.9 62.1 62.1 33.9 33.9 11.3-11.3 22.6-22.6 14.5-14.5c25-25 25-65.5 0-90.5L453.3 18.7c-25-25-65.5-25-90.5 0zm-47.4 168l-144 144c-6.2 6.2-16.4 6.2-22.6 0s-6.2-16.4 0-22.6l144-144c6.2-6.2 16.4-6.2 22.6 0s6.2 16.4 0 22.6z" />
+      </svg>
+    </button>
+  );
+}
+
+function DraggableTaskCard({ task, onDelete, onEdit }: { task: Task; onDelete: (id: string) => void; onEdit: (id: string, newTitle: string) => void }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(task.title);
+
+  // We disable dragging while editing so you can highlight text properly!
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({ 
+    id: task.id,
+    disabled: isEditing 
+  });
+  
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
 
+  const priorityColor = {
+    high: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+    medium: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800",
+    low: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800"
+  }[task.priority || "medium"];
+
+  const handleSave = () => {
+    onEdit(task.id, editTitle);
+    setIsEditing(false);
+  };
+
   return (
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes} className="cursor-grab active:cursor-grabbing z-10 relative group">
+    <div ref={setNodeRef} style={style} {...listeners} {...attributes} className={`z-10 relative group ${!isEditing ? "cursor-grab active:cursor-grabbing" : ""}`}>
       <Card className="relative border-l-4 border-l-purple-600 dark:border-l-purple-500">
-        <CardHeader className="p-4 pr-10">
-          <CardTitle className="text-md">{task.title}</CardTitle>
+        <CardHeader className="p-4 pr-16">
+          
+          {isEditing ? (
+            <div className="flex flex-col gap-2">
+              <input 
+                autoFocus
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSave()}
+                className="w-full rounded-md border border-purple-500 bg-transparent p-1 text-md outline-none dark:text-zinc-50"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" className="h-6 text-xs bg-purple-600 text-white" onClick={handleSave}>Save</Button>
+                <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setIsEditing(false)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <CardTitle className="text-md font-medium leading-snug">{task.title}</CardTitle>
+          )}
+          
+          {!isEditing && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {task.priority && (
+                <span className={`text-[10px] font-bold px-2 py-1 rounded-md border ${priorityColor}`}>
+                  {task.priority.toUpperCase()}
+                </span>
+              )}
+              {task.due_date && (
+                <span className="text-[10px] font-semibold px-2 py-1 rounded-md bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 flex items-center gap-1">
+                  🗓 {task.due_date}
+                </span>
+              )}
+            </div>
+          )}
+
         </CardHeader>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="absolute top-2 right-2 h-6 w-6 p-0 opacity-0 transition-opacity group-hover:opacity-100 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
-          onPointerDown={(e) => e.stopPropagation()} 
-          onClick={() => onDelete(task.id)}
-        >
-          ✕
-        </Button>
+
+        {/* Edit and Delete Buttons (Hidden until hover) */}
+        {!isEditing && (
+          <div className="absolute top-2 right-2 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+            
+            {/* ✨ YOUR NEW BUTTON IS HERE */}
+            <FancyEditButton onClick={() => setIsEditing(true)} />
+
+            <Button
+              variant="ghost" size="sm"
+              className="h-8 w-8 p-0 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+              onPointerDown={(e) => e.stopPropagation()} 
+              onClick={() => onDelete(task.id)}
+            >
+              ✕
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
   );
 }
 
-function DroppableColumn({ id, title, tasks, onDelete }: { id: string; title: string; tasks: Task[]; onDelete: (id: string) => void }) {
+function DroppableColumn({ id, title, tasks, onDelete, onEdit }: { id: string; title: string; tasks: Task[]; onDelete: (id: string) => void; onEdit: (id: string, newTitle: string) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: id });
   return (
     <div ref={setNodeRef} className={`flex flex-col gap-4 rounded-xl p-4 transition-colors ${isOver ? "bg-purple-100/50 dark:bg-purple-900/20" : "bg-zinc-100 dark:bg-zinc-800/50"}`}>
       <h2 className="font-semibold text-zinc-700 dark:text-zinc-300">{title}</h2>
       {tasks.map((task) => (
-        <DraggableTaskCard key={task.id} task={task} onDelete={onDelete} />
+        <DraggableTaskCard key={task.id} task={task} onDelete={onDelete} onEdit={onEdit} />
       ))}
     </div>
   );
 }
 
+function TrashZone() {
+  const { setNodeRef, isOver } = useDroppable({ id: "trash" });
+  
+  return (
+    <div 
+      ref={setNodeRef} 
+      className={`mt-8 flex h-20 w-full items-center justify-center rounded-xl border-2 border-dashed transition-all ${
+        isOver 
+          ? "border-red-500 bg-red-100 text-red-600 dark:border-red-500 dark:bg-red-900/30 dark:text-red-400" 
+          : "border-zinc-300 text-zinc-400 dark:border-zinc-800"
+      }`}
+    >
+      <span className="text-lg font-bold tracking-wide">🗑️ Drop here to delete</span>
+    </div>
+  );
+}
 // ========================================================================
 // 3. MAIN APP
 // ========================================================================
@@ -180,6 +281,13 @@ export default function Home() {
     const { active, over } = event;
     if (!over) return;
     const taskId = active.id as string;
+
+    // ✨ NEW: If dropped in the trash, delete it and stop!
+    if (over.id === "trash") {
+      handleDeleteTask(taskId);
+      return;
+    }
+
     const newStatus = over.id as "todo" | "in-progress" | "done";
 
     const taskToMove = tasks.find((t) => t.id === taskId);
@@ -199,6 +307,19 @@ export default function Home() {
     }
   };
 
+  const handleEditTask = async (taskId: string, newTitle: string) => {
+    if (newTitle.trim() === "") return;
+    
+    // Update the UI instantly
+    setTasks((prev) => prev.map((task) => task.id === taskId ? { ...task, title: newTitle } : task));
+    
+    // Save to database behind the scenes
+    const { error } = await supabase.from("tasks").update({ title: newTitle }).eq("id", taskId);
+    if (error) {
+      toast.error("Failed to update task");
+    }
+  };
+  
   const handleForgotPassword = () => {
     toast.info("Password reset coming soon!"); 
   };
@@ -318,10 +439,31 @@ export default function Home() {
 
       <DndContext onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <DroppableColumn id="todo" title="To Do" tasks={tasks.filter((t) => t.status === "todo")} onDelete={handleDeleteTask} />
-          <DroppableColumn id="in-progress" title="In Progress" tasks={tasks.filter((t) => t.status === "in-progress")} onDelete={handleDeleteTask} />
-          <DroppableColumn id="done" title="Done" tasks={tasks.filter((t) => t.status === "done")} onDelete={handleDeleteTask} />
+          <DroppableColumn 
+            id="todo" 
+            title="To Do" 
+            tasks={tasks.filter((t) => t.status === "todo")} 
+            onDelete={handleDeleteTask} 
+            onEdit={handleEditTask} // ✨ Added this!
+          />
+          <DroppableColumn 
+            id="in-progress" 
+            title="In Progress" 
+            tasks={tasks.filter((t) => t.status === "in-progress")} 
+            onDelete={handleDeleteTask} 
+            onEdit={handleEditTask} // ✨ Added this!
+          />
+          <DroppableColumn 
+            id="done" 
+            title="Done" 
+            tasks={tasks.filter((t) => t.status === "done")} 
+            onDelete={handleDeleteTask} 
+            onEdit={handleEditTask} // ✨ Added this!
+          />
         </div>
+        
+        {/* ✨ NEW: Render the drop zone */}
+        <TrashZone />
       </DndContext>
     </main>
   );
