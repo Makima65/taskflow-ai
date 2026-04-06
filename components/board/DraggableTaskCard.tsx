@@ -94,8 +94,7 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
 
   return (
     <>
-      <div ref={setNodeRef} style={style} {...listeners} {...attributes} className={`z-10 relative group/card ${!isEditing ? "cursor-grab active:cursor-grabbing" : ""}`}>
-        <Card className="relative border-l-4 border-l-purple-600 dark:border-l-purple-500 overflow-hidden flex flex-col justify-between min-h-[100px] w-full bg-white dark:bg-zinc-900">
+  <div ref={setNodeRef} style={style} {...listeners} {...attributes} className={`touch-none z-10 relative group/card ${!isEditing ? "cursor-grab active:cursor-grabbing" : ""}`}>        <Card className="relative border-l-4 border-l-purple-600 dark:border-l-purple-500 overflow-hidden flex flex-col justify-between min-h-[100px] w-full bg-white dark:bg-zinc-900">
           
           <CardHeader className="p-4 pb-2 w-full">
             <div className="w-full pr-[155px]">
@@ -130,7 +129,7 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
             </p>
           </div>
 
-  <div className="absolute top-3 right-3 flex gap-2 opacity-100 md:opacity-0 transition-opacity md:group-hover/card:opacity-100 z-20">
+  <div className="absolute top-3 right-3 flex gap-2 opacity-100 lg:opacity-0 transition-opacity lg:group-hover/card:opacity-100 z-20">
   <FancyEditButton onClick={() => setIsEditing(true)} />
   <FancyDeleteButton onClick={() => onRequestDelete(task.id)} />
 </div>
