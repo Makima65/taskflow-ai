@@ -3,7 +3,13 @@
 import { Session } from "@supabase/supabase-js";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { DndContext } from "@dnd-kit/core";
+import { 
+  DndContext, 
+  useSensor, 
+  useSensors, 
+  PointerSensor, 
+  TouchSensor 
+} from "@dnd-kit/core";
 import { Toaster, toast } from "sonner";
 
 // Components
@@ -62,6 +68,21 @@ export default function Home() {
     toast.success("Successfully signed out!");
   };
 
+  // Configure dnd-kit sensors for mobile dragging vs scrolling
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5, // 5px movement required before dragging starts on mouse
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250, // Require finger to hold for 250ms before picking up the task
+        tolerance: 5,
+      },
+    })
+  );
+
   if (!session) {
     return <AuthScreen />;
   }
@@ -97,10 +118,10 @@ export default function Home() {
         setSortBy={setSortBy}
       />
 
-      <DndContext onDragEnd={handleDragEnd}>
-        <div className="flex gap-6 overflow-x-auto pb-8 snap-x">
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <div className="flex gap-6 overflow-x-auto pb-8 snap-x snap-mandatory">
           {columns.map((col) => (
-            <div key={col.id} className="snap-center">
+            <div key={col.id} className="snap-center shrink-0 w-[85vw] md:w-80">
               <DroppableColumn 
                 column={col} 
                 tasks={processedTasks.filter((t) => t.status === col.id)} 
@@ -114,11 +135,13 @@ export default function Home() {
             </div>
           ))}
           
-          <AddColumnModal 
-            newColumnTitle={newColumnTitle}
-            setNewColumnTitle={setNewColumnTitle}
-            onAddColumn={handleAddColumn}
-          />
+          <div className="shrink-0 w-[85vw] md:w-80 snap-center">
+            <AddColumnModal 
+              newColumnTitle={newColumnTitle}
+              setNewColumnTitle={setNewColumnTitle}
+              onAddColumn={handleAddColumn}
+            />
+          </div>
         </div>
         
         <TrashZone />

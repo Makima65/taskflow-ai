@@ -75,6 +75,23 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
     setIsEditing(false);
   };
 
+  // Helper to safely format dates, falling back to the raw string if it's old data
+  const renderDueDate = (dateString: string) => {
+    if (!dateString) return "";
+    const parsedDate = new Date(dateString);
+    // If it's an invalid date (old data), just return the raw text
+    if (isNaN(parsedDate.getTime())) {
+      return dateString; 
+    }
+    // If it's a valid date (new data), format it nicely
+    return parsedDate.toLocaleString([], { 
+      month: 'short', 
+      day: 'numeric', 
+      hour: 'numeric', 
+      minute: '2-digit' 
+    });
+  };
+
   return (
     <>
       <div ref={setNodeRef} style={style} {...listeners} {...attributes} className={`z-10 relative group/card ${!isEditing ? "cursor-grab active:cursor-grabbing" : ""}`}>
@@ -95,7 +112,8 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
               )}
               {task.due_date && (
                 <span className="text-[10px] font-semibold px-2 py-1 rounded-md bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 flex items-center gap-1">
-                  🗓 {task.due_date}
+                  {/* THIS IS THE LINE THAT WAS FIXED: */}
+                  🗓 {renderDueDate(task.due_date)}
                 </span>
               )}
               {totalSubtasks > 0 && (
@@ -112,10 +130,10 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
             </p>
           </div>
 
-          <div className="absolute top-3 right-3 flex gap-2 opacity-0 transition-opacity group-hover/card:opacity-100 z-20">
-            <FancyEditButton onClick={() => setIsEditing(true)} />
-            <FancyDeleteButton onClick={() => onRequestDelete(task.id)} />
-          </div>
+  <div className="absolute top-3 right-3 flex gap-2 opacity-100 md:opacity-0 transition-opacity md:group-hover/card:opacity-100 z-20">
+  <FancyEditButton onClick={() => setIsEditing(true)} />
+  <FancyDeleteButton onClick={() => onRequestDelete(task.id)} />
+</div>
         </Card>
       </div>
 
@@ -175,7 +193,7 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                 </div>
                 <div className="flex flex-col gap-1 w-1/2">
                   <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Due Date</label>
-                  <input type="date" value={editForm.due_date} onChange={(e) => setEditForm({...editForm, due_date: e.target.value})} className="w-full rounded-md border border-zinc-300 bg-transparent p-2 outline-none focus:border-purple-500 dark:border-zinc-700 dark:text-white dark:[color-scheme:dark]" />
+                  <input type="datetime-local" value={editForm.due_date} onChange={(e) => setEditForm({...editForm, due_date: e.target.value})} className="w-full rounded-md border border-zinc-300 bg-transparent p-2 outline-none focus:border-purple-500 dark:border-zinc-700 dark:text-white dark:[color-scheme:dark]" />
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-2">

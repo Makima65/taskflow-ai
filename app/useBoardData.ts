@@ -157,7 +157,9 @@ const fetchColumns = async () => {
   const handleAITask = async () => {
     if (newTaskTitle.trim() === "" || columns.length === 0 || !session?.user) return;
     setIsAILoading(true); 
-    const aiResult = await generateTaskWithAI(newTaskTitle);
+    
+    // 👇 THIS IS THE UPDATED LINE 👇
+    const aiResult = await generateTaskWithAI(newTaskTitle, new Date().toLocaleString());
     
     if (aiResult && aiResult.title) {
       const finalTask = { ...aiResult, status: columns[0].id, user_id: session.user.id };
