@@ -34,7 +34,7 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load all of our board logic from the custom hook!
+  // Load all of our board logic from the custom hook
   const {
     columns,
     processedTasks,
@@ -72,12 +72,12 @@ export default function Home() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 5, // 5px movement required before dragging starts on mouse
+        distance: 5,
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 250, // Require finger to hold for 250ms before picking up the task
+        delay: 250,
         tolerance: 5,
       },
     })
@@ -88,7 +88,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 p-8 dark:bg-zinc-950">
+    <main className="min-h-screen bg-zinc-50 p-8 md:p-12 dark:bg-zinc-950 flex flex-col items-center">
       <Toaster richColors position="bottom-right" /> 
       
       <CustomConfirmModal 
@@ -111,17 +111,23 @@ export default function Home() {
         onSignOut={handleSignOut}
       />
 
-      <BoardFilters 
-        filterPriority={filterPriority}
-        setFilterPriority={setFilterPriority}
-        sortBy={sortBy}
-        setSortBy={setSortBy}
-      />
+      <div className="flex justify-center w-full mb-8">
+        <BoardFilters 
+          filterPriority={filterPriority}
+          setFilterPriority={setFilterPriority}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+        />
+      </div>
 
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div className="flex gap-6 overflow-x-auto pb-8 snap-x snap-mandatory">
+        <div className="flex flex-col md:flex-row gap-6 md:gap-8 pb-8 md:pb-12 snap-mandatory w-full justify-center md:items-start overflow-y-auto md:overflow-x-auto p-4 md:p-8 md:snap-x">
+          
           {columns.map((col) => (
-            <div key={col.id} className="snap-center shrink-0 w-[85vw] md:w-80">
+            <div 
+              key={col.id} 
+              className="snap-start md:snap-center shrink-0 w-full md:w-80"
+            >
               <DroppableColumn 
                 column={col} 
                 tasks={processedTasks.filter((t) => t.status === col.id)} 
@@ -135,13 +141,14 @@ export default function Home() {
             </div>
           ))}
           
-          <div className="shrink-0 w-[85vw] md:w-80 snap-center">
+          <div className="shrink-0 snap-start md:snap-center w-full md:w-80">
             <AddColumnModal 
               newColumnTitle={newColumnTitle}
               setNewColumnTitle={setNewColumnTitle}
               onAddColumn={handleAddColumn}
             />
           </div>
+
         </div>
         
         <TrashZone />
