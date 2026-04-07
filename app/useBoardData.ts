@@ -69,7 +69,7 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
     }
   }, [session, boardId]);
 
-  // 👇 Added Supabase Realtime Subscription 👇
+  // Supabase Realtime Subscription
   useEffect(() => {
     if (!session?.user || !boardId) return;
 
@@ -99,17 +99,16 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, boardId]);
 
-  // 👇 Added 'forceFetch' parameter to allow Realtime updates to bypass the ref lock 👇
   const fetchColumns = async (forceFetch = false) => {
     if (!session?.user || !boardId) return;
     
     if (!forceFetch && hasFetchedCols.current) return;
     hasFetchedCols.current = true;
 
+    // 👇 Removed the .eq("user_id", session.user.id) filter so you fetch everyone's columns
     let { data, error } = await supabase
       .from("columns")
       .select("*")
-      .eq("user_id", session.user.id)
       .eq("board_id", boardId) 
       .order('position');
 
@@ -128,10 +127,10 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
   const fetchTasks = async () => {
     if (!session?.user || !boardId) return;
 
+    // 👇 Removed the .eq("user_id", session.user.id) filter so you fetch everyone's tasks
     const { data, error } = await supabase
       .from("tasks")
       .select('*, subtasks(*)')
-      .eq("user_id", session.user.id)
       .eq("board_id", boardId);
 
     if (!error) setTasks(data || []);
