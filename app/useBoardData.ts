@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { Session } from "@supabase/supabase-js";
 import { DragEndEvent } from "@dnd-kit/core";
+// 👇 Added arrayMove to help reorder columns 👇
+import { arrayMove } from "@dnd-kit/sortable";
 import { toast } from "sonner";
 import { Task, Column } from "./types";
 import { generateTaskWithAI } from "./actions";
 import { supabase } from "@/lib/supabase";
 
-// 1. We tell TypeScript EXACTLY what this hook will return
 export interface BoardDataReturn {
   columns: Column[];
   tasks: Task[];
@@ -17,6 +18,8 @@ export interface BoardDataReturn {
   newColumnTitle: string;
   setNewColumnTitle: (title: string) => void;
   isAILoading: boolean;
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
   filterPriority: "all" | "high" | "medium" | "low";
   setFilterPriority: (val: "all" | "high" | "medium" | "low") => void;
   sortBy: "none" | "priority" | "due_date";
@@ -36,7 +39,6 @@ export interface BoardDataReturn {
   fetchTasks: () => Promise<void>;
 }
 
-// 2. We apply that interface to the function
 export function useBoardData(session: Session | null): BoardDataReturn {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
@@ -44,6 +46,7 @@ export function useBoardData(session: Session | null): BoardDataReturn {
   const [newColumnTitle, setNewColumnTitle] = useState("");
   const [isAILoading, setIsAILoading] = useState(false);
 
+  const [searchQuery, setSearchQuery] = useState("");
   const [filterPriority, setFilterPriority] = useState<"all" | "high" | "medium" | "low">("all");
   const [sortBy, setSortBy] = useState<"none" | "priority" | "due_date">("none");
 
@@ -67,8 +70,7 @@ export function useBoardData(session: Session | null): BoardDataReturn {
     }
   }, [session]);
 
-const fetchColumns = async () => {
-    // 1. Add this guard clause right here:
+  const fetchColumns = async () => {
     if (!session?.user) return;
     
     if (hasFetchedCols.current) return;
@@ -88,7 +90,6 @@ const fetchColumns = async () => {
   };
 
   const fetchTasks = async () => {
-    // 2. And add the same guard clause here:
     if (!session?.user) return;
 
     const { data, error } = await supabase.from("tasks").select('*, subtasks(*)').eq("user_id", session.user.id);
@@ -158,25 +159,92 @@ const fetchColumns = async () => {
     if (newTaskTitle.trim() === "" || columns.length === 0 || !session?.user) return;
     setIsAILoading(true); 
     
-    // 👇 THIS IS THE UPDATED LINE 👇
-    const aiResult = await generateTaskWithAI(newTaskTitle, new Date().toLocaleString());
-    
-    if (aiResult && aiResult.title) {
-      const finalTask = { ...aiResult, status: columns[0].id, user_id: session.user.id };
-      const { data, error } = await supabase.from("tasks").insert([finalTask]).select();
-      if (!error && data) {
-        setTasks([...tasks, { ...data[0], subtasks: [] }]);
-        setNewTaskTitle(""); 
-        toast.success("AI generated your task!"); 
-        await logActivity(data[0].id, "Generated", "Task was created by AI");
+    try {
+      const aiResult = await generateTaskWithAI(newTaskTitle, new Date().toLocaleString());
+      
+      if (aiResult && aiResult.title) {
+        const finalTask = { 
+          title: aiResult.title,
+          description: aiResult.description,
+          priority: aiResult.priority,
+          due_date: aiResult.due_date,
+          status: columns[0].id, 
+          user_id: session.user.id 
+        };
+        
+        const { data: taskData, error: taskError } = await supabase.from("tasks").insert([finalTask]).select();
+        
+        if (!taskError && taskData) {
+          const newTask = taskData[0];
+          let insertedSubtasks: any[] = [];
+
+          if (aiResult.subtasks && aiResult.subtasks.length > 0) {
+            const subtasksToInsert = aiResult.subtasks.map((subTitle: string) => ({
+              task_id: newTask.id,
+              user_id: session.user.id!,
+              title: subTitle,
+              is_completed: false
+            }));
+
+            const { data: subData, error: subError } = await supabase.from("subtasks").insert(subtasksToInsert).select();
+            
+            if (subError) console.error("Error inserting subtasks:", subError);
+            if (subData) insertedSubtasks = subData;
+          }
+
+          setTasks([...tasks, { ...newTask, subtasks: insertedSubtasks }]);
+          setNewTaskTitle(""); 
+          toast.success("AI generated your task & subtasks!"); 
+          await logActivity(newTask.id, "Generated", "Task and details were created by AI");
+        } else {
+            toast.error("Failed to save task.");
+        }
+      } else {
+        toast.error("Failed to generate task with AI.");
       }
+    } catch (error) {
+        toast.error("An error occurred during AI generation.");
+    } finally {
+        setIsAILoading(false); 
     }
-    setIsAILoading(false); 
   };
 
+  // 👇 The Drag Logic is significantly updated here 👇
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over) return;
+
+    // 1. Determine if we are dragging a column or a task
+    const activeType = active.data.current?.type;
+    
+    // -- HANDLE COLUMN DRAG --
+    if (activeType === "Column") {
+      if (active.id === over.id) return;
+
+      setColumns((prev) => {
+        const activeIndex = prev.findIndex((col) => col.id === active.id);
+        const overIndex = prev.findIndex((col) => col.id === over.id);
+        
+        // Reorder locally
+        const newColumns = arrayMove(prev, activeIndex, overIndex);
+        
+        // Update database with new positions in the background
+        const updateDatabasePositions = async () => {
+          for (let i = 0; i < newColumns.length; i++) {
+            await supabase
+              .from("columns")
+              .update({ position: i + 1 })
+              .eq("id", newColumns[i].id);
+          }
+        };
+        updateDatabasePositions();
+
+        return newColumns;
+      });
+      return;
+    }
+
+    // -- HANDLE TASK DRAG (existing logic) --
     const taskId = active.id as string;
 
     if (over.id === "trash") {
@@ -238,10 +306,17 @@ const fetchColumns = async () => {
   const activeTasks = tasks.filter(t => !t.is_trashed);
 
   const processedTasks = activeTasks
-    .filter(t => filterPriority === "all" || t.priority === filterPriority)
+    .filter((t) => {
+      const matchesSearch = 
+        t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        (t.description && t.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      
+      const matchesPriority = filterPriority === "all" || t.priority === filterPriority;
+
+      return matchesSearch && matchesPriority;
+    })
     .sort((a, b) => {
       if (sortBy === "priority") {
-        // Replaced 'any' with a strict Record type here
         const pWeight: Record<string, number> = { high: 3, medium: 2, low: 1, undefined: 0 };
         return (pWeight[b.priority || "medium"] || 0) - (pWeight[a.priority || "medium"] || 0);
       }
@@ -263,6 +338,8 @@ const fetchColumns = async () => {
     newColumnTitle,
     setNewColumnTitle,
     isAILoading,
+    searchQuery,
+    setSearchQuery,
     filterPriority,
     setFilterPriority,
     sortBy,

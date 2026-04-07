@@ -39,7 +39,7 @@ export function BoardHeader({
               🗑️ Trash {trashedTasks.length > 0 && `(${trashedTasks.length})`}
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+          <DialogContent className="w-[95vw] sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Trash Bin 🗑️</DialogTitle>
               <DialogDescription>
@@ -54,14 +54,34 @@ export function BoardHeader({
                 </div>
               ) : (
                 trashedTasks.map((task: any) => (
-                  <div key={task.id} className="flex items-center justify-between p-3 border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 group/trashitem">
-                    <span className="font-medium text-sm text-zinc-700 dark:text-zinc-300 truncate pr-4">{task.title}</span>
-                    <div className="flex gap-2 opacity-100 sm:opacity-0 sm:group-hover/trashitem:opacity-100 transition-opacity">
-                      <Button size="sm" variant="outline" className="h-7 text-xs bg-white dark:bg-zinc-800 hover:text-green-600 dark:hover:text-green-400" onClick={() => onRestoreTask(task.id)}>
-                        ♻️ Restore
+                  <div key={task.id} className="flex items-center justify-between p-3 border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-900/50">
+                    
+                    {/* Added min-w-0 to allow truncation to work properly alongside flex buttons */}
+                    <span className="font-medium text-sm text-zinc-700 dark:text-zinc-300 truncate pr-2 min-w-0">
+                      {task.title}
+                    </span>
+                    
+                    {/* Removed hover logic, added shrink-0 so buttons keep their shape */}
+                    <div className="flex gap-2 shrink-0">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="h-8 text-xs px-2 sm:px-3 bg-white dark:bg-zinc-800 hover:text-green-600 dark:hover:text-green-400" 
+                        onClick={() => onRestoreTask(task.id)}
+                        title="Restore Task"
+                      >
+                        <span className="sm:mr-1">♻️</span> 
+                        <span className="hidden sm:inline">Restore</span>
                       </Button>
-                      <Button size="sm" variant="destructive" className="h-7 text-xs bg-red-500 hover:bg-red-600" onClick={() => onHardDeleteTask(task.id)}>
-                        Delete
+                      <Button 
+                        size="sm" 
+                        variant="destructive" 
+                        className="h-8 text-xs px-2 sm:px-3 bg-red-500 hover:bg-red-600" 
+                        onClick={() => onHardDeleteTask(task.id)}
+                        title="Permanently Delete"
+                      >
+                        <span className="sm:hidden">🗑️</span>
+                        <span className="hidden sm:inline">Delete</span>
                       </Button>
                     </div>
                   </div>

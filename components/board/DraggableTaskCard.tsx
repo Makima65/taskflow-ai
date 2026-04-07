@@ -10,16 +10,18 @@ import { FloatingInput } from "@/components/ui/FloatingInput";
 import { getRelativeTime } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Subtask } from "@/app/types";
 
-// We import the Subtask type if you put it in types.ts
-import { Subtask } from "@/app/types"; // Adjust this path if your types file is somewhere else!
-
-export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUpdateSubtasks }: any) {
+export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUpdateSubtasks, columnTitle }: any) {
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<"edit" | "history">("edit");
   const [historyLogs, setHistoryLogs] = useState<any[]>([]);
   const [isPreviewMode, setIsPreviewMode] = useState(true);
   const [newSubtask, setNewSubtask] = useState("");
+  
+  // 👇 Added state for editing existing subtasks 👇
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
+  const [editingSubtaskTitle, setEditingSubtaskTitle] = useState("");
   
   const [editForm, setEditForm] = useState({
     title: task.title,
@@ -30,6 +32,11 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
 
   const completedSubtasks = task.subtasks?.filter((s:any) => s.is_completed).length || 0;
   const totalSubtasks = task.subtasks?.length || 0;
+
+  const isOverdue = 
+    task.due_date && 
+    new Date(task.due_date).getTime() < new Date().getTime() && 
+    columnTitle?.toLowerCase() !== "done";
 
   useEffect(() => {
     if (isEditing && activeTab === "history") {
@@ -57,6 +64,14 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
     onUpdateSubtasks();
   };
 
+  // 👇 Added function to handle saving an edited subtask 👇
+  const saveSubtaskEdit = async (id: string) => {
+    if (!editingSubtaskTitle.trim()) return;
+    await supabase.from("subtasks").update({ title: editingSubtaskTitle }).eq("id", id);
+    setEditingSubtaskId(null);
+    onUpdateSubtasks();
+  };
+
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ 
     id: task.id,
     disabled: isEditing 
@@ -75,15 +90,12 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
     setIsEditing(false);
   };
 
-  // Helper to safely format dates, falling back to the raw string if it's old data
   const renderDueDate = (dateString: string) => {
     if (!dateString) return "";
     const parsedDate = new Date(dateString);
-    // If it's an invalid date (old data), just return the raw text
     if (isNaN(parsedDate.getTime())) {
       return dateString; 
     }
-    // If it's a valid date (new data), format it nicely
     return parsedDate.toLocaleString([], { 
       month: 'short', 
       day: 'numeric', 
@@ -94,7 +106,8 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
 
   return (
     <>
-  <div ref={setNodeRef} style={style} {...listeners} {...attributes} className={`touch-none z-10 relative group/card ${!isEditing ? "cursor-grab active:cursor-grabbing" : ""}`}>        <Card className="relative border-l-4 border-l-purple-600 dark:border-l-purple-500 overflow-hidden flex flex-col justify-between min-h-[100px] w-full bg-white dark:bg-zinc-900">
+      <div ref={setNodeRef} style={style} {...listeners} {...attributes} className={`touch-none z-10 relative group/card ${!isEditing ? "cursor-grab active:cursor-grabbing" : ""}`}>
+        <Card className="relative border-l-4 border-l-purple-600 dark:border-l-purple-500 overflow-hidden flex flex-col justify-between min-h-[100px] w-full bg-white dark:bg-zinc-900">
           
           <CardHeader className="p-4 pb-2 w-full">
             <div className="w-full pr-[155px]">
@@ -110,9 +123,12 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                 </span>
               )}
               {task.due_date && (
-                <span className="text-[10px] font-semibold px-2 py-1 rounded-md bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700 flex items-center gap-1">
-                  {/* THIS IS THE LINE THAT WAS FIXED: */}
-                  🗓 {renderDueDate(task.due_date)}
+                <span className={`text-[10px] font-semibold px-2 py-1 rounded-md border flex items-center gap-1 ${
+                  isOverdue 
+                    ? "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-800" 
+                    : "bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
+                }`}>
+                  {isOverdue ? "⚠️" : "🗓"} {renderDueDate(task.due_date)}
                 </span>
               )}
               {totalSubtasks > 0 && (
@@ -129,10 +145,11 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
             </p>
           </div>
 
-  <div className="absolute top-3 right-3 flex gap-2 opacity-100 lg:opacity-0 transition-opacity lg:group-hover/card:opacity-100 z-20">
-  <FancyEditButton onClick={() => setIsEditing(true)} />
-  <FancyDeleteButton onClick={() => onRequestDelete(task.id)} />
-</div>
+          {/* Card-level Edit/Delete buttons visible on mobile, hover on desktop */}
+          <div className="absolute top-3 right-3 flex gap-2 opacity-100 lg:opacity-0 transition-opacity lg:group-hover/card:opacity-100 z-20">
+            <FancyEditButton onClick={() => setIsEditing(true)} />
+            <FancyDeleteButton onClick={() => onRequestDelete(task.id)} />
+          </div>
         </Card>
       </div>
 
@@ -146,6 +163,7 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
               <button onClick={() => setActiveTab("history")} className={`text-sm font-semibold pb-2 border-b-2 transition-colors ${activeTab === "history" ? "border-purple-600 text-purple-600 dark:text-purple-400" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"}`}>Activity Log</button>
             </div>
           </DialogHeader>
+          
           {activeTab === "edit" ? (
             <div className="flex flex-col gap-5 py-2">
               <input value={editForm.title} onChange={(e) => setEditForm({...editForm, title: e.target.value})} className="text-xl font-bold bg-transparent outline-none dark:text-white border-b border-transparent focus:border-purple-500 transition-colors pb-1" />
@@ -164,23 +182,68 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                   <textarea rows={5} value={editForm.description} placeholder="Use Markdown..." onChange={(e) => setEditForm({...editForm, description: e.target.value})} className="w-full resize-y rounded-md border border-zinc-300 bg-transparent p-3 outline-none focus:border-purple-500 dark:border-zinc-700 dark:text-white font-mono text-sm" />
                 )}
               </div>
+              
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Subtasks</label>
                 <div className="flex flex-col gap-2 mb-2 w-full">
                   {task.subtasks?.map((subtask: any) => (
-                    <div key={subtask.id} className="flex items-center justify-between group/sub w-full">
-                      <AnimatedCheckbox 
-                        id={subtask.id}
-                        checked={subtask.is_completed}
-                        onChange={() => toggleSubtask(subtask)}
-                        label={subtask.title}
-                      />
-                      <button onClick={() => deleteSubtask(subtask.id)} className="text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity text-xs p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md">✕</button>
+                    <div key={subtask.id} className="flex items-center justify-between group/sub w-full min-h-[32px]">
+                      
+                      {/* 👇 Inline Editing UI 👇 */}
+                      {editingSubtaskId === subtask.id ? (
+                        <div className="flex w-full gap-2 items-center">
+                          <input 
+                            autoFocus
+                            value={editingSubtaskTitle}
+                            onChange={(e) => setEditingSubtaskTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveSubtaskEdit(subtask.id);
+                              if (e.key === 'Escape') setEditingSubtaskId(null);
+                            }}
+                            className="flex-1 rounded-md border border-zinc-300 bg-transparent p-1 px-2 outline-none focus:border-purple-500 dark:border-zinc-700 dark:text-white text-sm"
+                          />
+                          <button onClick={() => saveSubtaskEdit(subtask.id)} className="text-green-600 hover:bg-green-50 p-1.5 rounded-md dark:hover:bg-green-900/20 text-xs">✓</button>
+                          <button onClick={() => setEditingSubtaskId(null)} className="text-zinc-500 hover:bg-zinc-100 p-1.5 rounded-md dark:hover:bg-zinc-800 text-xs">✕</button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex-1 truncate pr-2">
+                            <AnimatedCheckbox 
+                              id={subtask.id}
+                              checked={subtask.is_completed}
+                              onChange={() => toggleSubtask(subtask)}
+                              label={subtask.title}
+                            />
+                          </div>
+                          
+                          {/* 👇 Opacity classes updated for mobile visibility 👇 */}
+                          <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover/sub:opacity-100 transition-opacity shrink-0">
+                            <button 
+                              onClick={() => {
+                                setEditingSubtaskId(subtask.id);
+                                setEditingSubtaskTitle(subtask.title);
+                              }} 
+                              className="text-blue-500 text-xs p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md"
+                              aria-label="Edit subtask"
+                            >
+                              ✏️
+                            </button>
+                            <button 
+                              onClick={() => deleteSubtask(subtask.id)} 
+                              className="text-red-500 text-xs p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md"
+                              aria-label="Delete subtask"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
                 <FloatingInput label="+ Add a subtask (Press Enter)" value={newSubtask} onChange={(e: any) => setNewSubtask(e.target.value)} onKeyDown={handleAddSubtask} />
               </div>
+
               <div className="flex gap-4">
                 <div className="flex flex-col gap-1 w-1/2">
                   <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Priority</label>
@@ -195,6 +258,7 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                   <input type="datetime-local" value={editForm.due_date} onChange={(e) => setEditForm({...editForm, due_date: e.target.value})} className="w-full rounded-md border border-zinc-300 bg-transparent p-2 outline-none focus:border-purple-500 dark:border-zinc-700 dark:text-white dark:[color-scheme:dark]" />
                 </div>
               </div>
+              
               <div className="flex justify-end gap-2 mt-2">
                 <Button variant="ghost" onClick={() => setIsEditing(false)}>Cancel</Button>
                 <Button className="bg-purple-600 text-white hover:bg-purple-700" onClick={handleSave}>Save Changes</Button>
