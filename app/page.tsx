@@ -1,107 +1,158 @@
 "use client";
 
-import { Session } from "@supabase/supabase-js";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { 
-  DndContext, 
-  useSensor, 
-  useSensors, 
-  PointerSensor, 
-  TouchSensor 
-} from "@dnd-kit/core";
-// 👇 Added imports for Sortable Columns 👇
-import { 
-  SortableContext, 
-  horizontalListSortingStrategy 
-} from "@dnd-kit/sortable";
-import { Toaster, toast } from "sonner";
-
-// Components
-import { BoardHeader } from "@/components/board/BoardHeader";
+import { Session } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
+import { toast, Toaster } from "sonner";
 import { AuthScreen } from "@/components/auth/AuthScreen";
-import { DroppableColumn } from "@/components/board/DroppableColumn";
-import { TrashZone } from "@/components/board/TrashZone";
-import { AddColumnModal } from "@/components/board/AddColumnModal";
 import { CustomConfirmModal } from "@/components/ui/CustomConfirmModal";
-import { BoardFilters } from "@/components/board/BoardFilters";
-import { CalendarView } from "@/components/board/CalendarView";
 
-// Custom Hook
-import { useBoardData } from "./useBoardData";
+interface Board {
+  id: string;
+  title: string;
+  created_at: string;
+}
 
-export default function Home() {
+export default function Dashboard() {
   const [session, setSession] = useState<Session | null>(null);
-  const [isSessionLoading, setIsSessionLoading] = useState(true);
-  const [activeView, setActiveView] = useState<"board" | "calendar">("board");
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Create Board State
+  const [isCreating, setIsCreating] = useState(false);
+  const [newBoardTitle, setNewBoardTitle] = useState("");
+  const router = useRouter();
 
-  // Handle Authentication State
+  // Edit / Delete State
+  const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+  });
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      setIsSessionLoading(false); 
+      if (session) fetchBoards(session.user.id);
+      else setIsLoading(false);
     });
-    
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      setIsSessionLoading(false); 
+      if (session) fetchBoards(session.user.id);
     });
-    
+
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load all of our board logic from the custom hook
-  const {
-    columns,
-    processedTasks,
-    trashedTasks,
-    newTaskTitle,
-    setNewTaskTitle,
-    newColumnTitle,
-    setNewColumnTitle,
-    isAILoading,
-    filterPriority,
-    setFilterPriority,
-    sortBy,
-    setSortBy,
-    modalConfig,
-    setModalConfig,
-    searchQuery,
-    setSearchQuery,
-    handleAddTask,
-    handleAddColumn,
-    handleAITask,
-    handleDragEnd,
-    handleEditTask,
-    handleEditColumnTitle,
-    requestTaskDelete,
-    requestColumnDelete,
-    executeRestoreTask,
-    executeHardDeleteTask,
-    fetchTasks,
-  } = useBoardData(session);
+  const fetchBoards = async (userId: string) => {
+    // 1. Fetch boards you created
+    const { data: ownedBoards, error: ownedError } = await supabase
+      .from("boards")
+      .select("*")
+      .eq("user_id", userId);
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    toast.success("Successfully signed out!");
+    // 2. Fetch boards shared with you
+    const { data: sharedMemberships, error: sharedError } = await supabase
+      .from("board_members")
+      .select("board_id, boards(*)")
+      .eq("user_id", userId);
+
+    if (ownedError || sharedError) {
+      console.error("Error fetching boards", ownedError || sharedError);
+      setIsLoading(false);
+      return;
+    }
+
+    // Extract the actual board data from the shared memberships
+    const sharedBoards = (sharedMemberships || [])
+      .map((membership: any) => membership.boards)
+      .filter((board) => board !== null) as Board[];
+
+    // 3. Combine them, remove duplicates (just in case), and sort by date
+    const allBoards = [...(ownedBoards || []), ...sharedBoards];
+    
+    // Quick trick to remove duplicates based on board ID
+    const uniqueBoards = Array.from(new Map(allBoards.map(b => [b.id, b])).values());
+    
+    // Sort newest first
+    uniqueBoards.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    setBoards(uniqueBoards);
+    setIsLoading(false);
   };
 
-  // Configure dnd-kit sensors for mobile dragging vs scrolling
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 250,
-        tolerance: 5,
-      },
-    })
-  );
+  const handleCreateBoard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBoardTitle.trim() || !session) return;
 
-  if (isSessionLoading) {
+    const { data, error } = await supabase
+      .from("boards")
+      .insert([{ user_id: session.user.id, title: newBoardTitle }])
+      .select();
+
+    if (!error && data) {
+      setBoards([data[0], ...boards]);
+      setNewBoardTitle("");
+      setIsCreating(false);
+      toast.success("Workspace created!");
+    } else {
+      toast.error("Failed to create workspace.");
+    }
+  };
+
+  const handleRenameBoard = async (e: React.FormEvent, boardId: string) => {
+    e.preventDefault();
+    if (!editingTitle.trim() || !session) return;
+
+    setBoards(boards.map(b => b.id === boardId ? { ...b, title: editingTitle } : b));
+    setEditingBoardId(null);
+
+    const { error } = await supabase
+      .from("boards")
+      .update({ title: editingTitle })
+      .eq("id", boardId);
+
+    if (error) {
+      toast.error("Failed to rename workspace.");
+      fetchBoards(session.user.id); 
+    } else {
+      toast.success("Workspace renamed!");
+    }
+  };
+
+  const confirmDeleteBoard = (e: React.MouseEvent, board: Board) => {
+    e.stopPropagation(); 
+    setActiveMenuId(null); 
+    setModalConfig({
+      isOpen: true,
+      title: "Delete Workspace?",
+      description: `Are you sure you want to delete "${board.title}"? All columns and tasks inside it will be permanently lost.`,
+      onConfirm: () => executeDeleteBoard(board.id),
+    });
+  };
+
+  const executeDeleteBoard = async (boardId: string) => {
+    setBoards(boards.filter(b => b.id !== boardId));
+    setModalConfig(prev => ({ ...prev, isOpen: false }));
+
+    const { error } = await supabase.from("boards").delete().eq("id", boardId);
+
+    if (error) {
+      toast.error("Failed to delete workspace.");
+      if (session) fetchBoards(session.user.id); 
+    } else {
+      toast.success("Workspace deleted!");
+    }
+  };
+
+  if (isLoading) {
     return (
       <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
@@ -109,13 +160,11 @@ export default function Home() {
     );
   }
 
-  if (!session) {
-    return <AuthScreen />;
-  }
+  if (!session) return <AuthScreen />;
 
   return (
-    <main className="min-h-screen bg-zinc-50 p-8 md:p-12 dark:bg-zinc-950 flex flex-col items-center">
-      <Toaster richColors position="bottom-right" /> 
+    <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-8 md:p-12 flex flex-col items-center">
+      <Toaster richColors position="bottom-right" />
       
       <CustomConfirmModal 
         isOpen={modalConfig.isOpen}
@@ -124,95 +173,171 @@ export default function Home() {
         onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
         onConfirm={modalConfig.onConfirm}
       />
-
-      <BoardHeader 
-        trashedTasks={trashedTasks}
-        onRestoreTask={executeRestoreTask}
-        onHardDeleteTask={executeHardDeleteTask}
-        newTaskTitle={newTaskTitle}
-        setNewTaskTitle={setNewTaskTitle}
-        onAddTask={handleAddTask}
-        onAITask={handleAITask}
-        isAILoading={isAILoading}
-        onSignOut={handleSignOut}
-      />
-
-      <div className="flex flex-col md:flex-row justify-center items-center w-full mb-8 gap-4">
-        <div className="flex bg-zinc-200 dark:bg-zinc-800 p-1 rounded-lg">
-          <button 
-            onClick={() => setActiveView("board")}
-            className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${activeView === "board" ? "bg-white dark:bg-zinc-700 shadow text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"}`}
-          >
-            Board
-          </button>
-          <button 
-            onClick={() => setActiveView("calendar")}
-            className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${activeView === "calendar" ? "bg-white dark:bg-zinc-700 shadow text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"}`}
-          >
-            Calendar
+      
+      <div className="w-full max-w-5xl">
+        <div className="flex justify-between items-center mb-10">
+          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">My Workspaces</h1>
+          <button onClick={() => supabase.auth.signOut()} className="text-sm font-medium bg-zinc-200 dark:bg-zinc-800 px-4 py-2 rounded-lg text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors">
+            Sign Out
           </button>
         </div>
 
-        <BoardFilters 
-          filterPriority={filterPriority}
-          setFilterPriority={setFilterPriority}
-          sortBy={sortBy}
-          setSortBy={setSortBy}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-        />
-      </div>
-
-      {activeView === "board" ? (
-        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="flex flex-col md:flex-row gap-6 md:gap-8 pb-8 md:pb-12 snap-mandatory w-full justify-center md:items-start overflow-y-auto md:overflow-x-auto p-4 md:p-8 md:snap-x">
-            
-            {/* 👇 Wrap columns in SortableContext 👇 */}
-            <SortableContext 
-              items={columns.map(col => col.id)} 
-              strategy={horizontalListSortingStrategy}
-            >
-              {columns.map((col) => (
-                <div 
-                  key={col.id} 
-                  className="snap-start md:snap-center shrink-0 w-full md:w-80"
-                >
-                  <DroppableColumn 
-                    column={col} 
-                    tasks={processedTasks.filter((t) => t.status === col.id)} 
-                    session={session}
-                    onRequestTaskDelete={requestTaskDelete}
-                    onEditTask={handleEditTask}
-                    onUpdateSubtasks={fetchTasks}
-                    onRequestColumnDelete={requestColumnDelete}
-                    onEditColumnTitle={handleEditColumnTitle}
-                  />
-                </div>
-              ))}
-            </SortableContext>
-            
-            <div className="shrink-0 snap-start md:snap-center w-full md:w-80">
-              <AddColumnModal 
-                newColumnTitle={newColumnTitle}
-                setNewColumnTitle={setNewColumnTitle}
-                onAddColumn={handleAddColumn}
-              />
-            </div>
-
-          </div>
+        {/* Boards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           
-          <TrashZone />
-        </DndContext>
-      ) : (
-        <div className="w-full pb-12">
-          {/* 👇 Filter out orphaned tasks to fix the ghost bug 👇 */}
-          <CalendarView 
-            tasks={processedTasks.filter(task => 
-              columns.some(col => col.id === task.status)
-            )} 
-          />
+          {/* Create New Board Card */}
+          {isCreating ? (
+            <form 
+              onSubmit={handleCreateBoard}
+              className="bg-white dark:bg-zinc-900 border-2 border-purple-500 p-6 rounded-xl shadow-md flex flex-col gap-3"
+            >
+              <input
+                autoFocus
+                type="text"
+                placeholder="Workspace name..."
+                value={newBoardTitle}
+                onChange={(e) => setNewBoardTitle(e.target.value)}
+                className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-md px-3 py-2 text-zinc-900 dark:text-zinc-100 outline-none focus:border-purple-500"
+              />
+              <div className="flex justify-end gap-2 mt-auto">
+                <button 
+                  type="button" 
+                  onClick={() => setIsCreating(false)}
+                  className="px-3 py-2 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="px-3 py-2 text-sm text-white bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors"
+                >
+                  Create
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button 
+              onClick={() => setIsCreating(true)}
+              className="flex flex-col items-center justify-center min-h-[160px] bg-transparent border-2 border-dashed border-zinc-300 dark:border-zinc-700 p-6 rounded-xl hover:border-purple-500 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-all text-zinc-500 dark:text-zinc-400 hover:text-purple-600 dark:hover:text-purple-400 group"
+            >
+              <span className="text-3xl mb-2 group-hover:scale-110 transition-transform">+</span>
+              <span className="font-medium">New Workspace</span>
+            </button>
+          )}
+
+          {/* Existing Boards */}
+          {boards.map((board) => (
+            <div 
+              key={board.id}
+              onClick={() => {
+                if (editingBoardId !== board.id) router.push(`/board/${board.id}`);
+              }}
+              className={`relative flex flex-col h-full min-h-[160px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-xl transition-all group ${
+                editingBoardId === board.id ? "" : "cursor-pointer hover:border-purple-500 hover:shadow-md"
+              }`}
+            >
+              {editingBoardId === board.id ? (
+                // Edit Mode UI
+                <form 
+                  onSubmit={(e) => handleRenameBoard(e, board.id)}
+                  className="flex flex-col h-full gap-3"
+                  onClick={(e) => e.stopPropagation()} 
+                >
+                  <input
+                    autoFocus
+                    type="text"
+                    value={editingTitle}
+                    onChange={(e) => setEditingTitle(e.target.value)}
+                    className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-md px-3 py-2 text-zinc-900 dark:text-zinc-100 outline-none focus:border-purple-500"
+                  />
+                  <div className="flex justify-end gap-2 mt-auto">
+                    <button 
+                      type="button" 
+                      onClick={() => setEditingBoardId(null)}
+                      className="px-3 py-2 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit"
+                      className="px-3 py-2 text-sm text-white bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                // Normal Display UI
+                <>
+                  <div className="flex justify-between items-start mb-2 relative">
+                    <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors pr-8 line-clamp-2">
+                      {board.title}
+                    </h2>
+                    
+                    {/* Triple Dot Menu Button */}
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setActiveMenuId(activeMenuId === board.id ? null : board.id);
+                      }}
+                      className="absolute -right-2 -top-2 p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10"
+                      title="Options"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="1"></circle>
+                        <circle cx="12" cy="5" r="1"></circle>
+                        <circle cx="12" cy="19" r="1"></circle>
+                      </svg>
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {activeMenuId === board.id && (
+                      <>
+                        {/* Invisible overlay to close menu when clicking outside */}
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuId(null);
+                          }}
+                        />
+                        
+                        {/* Menu Box */}
+                        <div className="absolute right-0 top-8 w-32 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden flex flex-col">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTitle(board.title);
+                              setEditingBoardId(board.id);
+                              setActiveMenuId(null);
+                            }}
+                            className="px-4 py-2.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors flex items-center gap-2"
+                          >
+                            ✏️ Edit
+                          </button>
+                          <div className="h-[1px] bg-zinc-200 dark:bg-zinc-700 w-full" />
+                          <button
+                            onClick={(e) => confirmDeleteBoard(e, board)}
+                            className="px-4 py-2.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-2"
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  
+                  <p className="mt-auto text-sm text-zinc-500 dark:text-zinc-400 pt-4">
+                    Created {new Date(board.created_at).toLocaleDateString()}
+                  </p>
+                </>
+              )}
+            </div>
+          ))}
         </div>
-      )}
+
+      </div>
     </main>
   );
 }

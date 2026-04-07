@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Session } from "@supabase/supabase-js";
 import { DragEndEvent } from "@dnd-kit/core";
-// 👇 Added arrayMove to help reorder columns 👇
 import { arrayMove } from "@dnd-kit/sortable";
 import { toast } from "sonner";
 import { Task, Column } from "./types";
@@ -39,7 +38,8 @@ export interface BoardDataReturn {
   fetchTasks: () => Promise<void>;
 }
 
-export function useBoardData(session: Session | null): BoardDataReturn {
+// 👇 Added boardId as the second parameter 👇
+export function useBoardData(session: Session | null, boardId: string): BoardDataReturn {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -60,7 +60,8 @@ export function useBoardData(session: Session | null): BoardDataReturn {
   const hasFetchedCols = useRef(false);
 
   useEffect(() => {
-    if (session?.user) {
+    // 👇 Ensure we have both a user AND a boardId before fetching 👇
+    if (session?.user && boardId) {
       fetchColumns();
       fetchTasks();
     } else {
@@ -68,20 +69,28 @@ export function useBoardData(session: Session | null): BoardDataReturn {
       setColumns([]);
       hasFetchedCols.current = false;
     }
-  }, [session]);
+  }, [session, boardId]);
 
   const fetchColumns = async () => {
-    if (!session?.user) return;
+    if (!session?.user || !boardId) return;
     
     if (hasFetchedCols.current) return;
     hasFetchedCols.current = true;
 
-    let { data, error } = await supabase.from("columns").select("*").eq("user_id", session.user.id).order('position');
+    // 👇 Filter by board_id 👇
+    let { data, error } = await supabase
+      .from("columns")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .eq("board_id", boardId) 
+      .order('position');
+
     if (data?.length === 0) {
+      // 👇 Attach default columns to this specific board_id 👇
       const defaultCols = [
-        { user_id: session.user.id, title: "To Do", position: 1 },
-        { user_id: session.user.id, title: "In Progress", position: 2 },
-        { user_id: session.user.id, title: "Done", position: 3 }
+        { user_id: session.user.id, board_id: boardId, title: "To Do", position: 1 },
+        { user_id: session.user.id, board_id: boardId, title: "In Progress", position: 2 },
+        { user_id: session.user.id, board_id: boardId, title: "Done", position: 3 }
       ];
       const res = await supabase.from("columns").insert(defaultCols).select();
       data = res.data;
@@ -90,9 +99,15 @@ export function useBoardData(session: Session | null): BoardDataReturn {
   };
 
   const fetchTasks = async () => {
-    if (!session?.user) return;
+    if (!session?.user || !boardId) return;
 
-    const { data, error } = await supabase.from("tasks").select('*, subtasks(*)').eq("user_id", session.user.id);
+    // 👇 Filter by board_id 👇
+    const { data, error } = await supabase
+      .from("tasks")
+      .select('*, subtasks(*)')
+      .eq("user_id", session.user.id)
+      .eq("board_id", boardId);
+
     if (!error) setTasks(data || []);
   };
 
@@ -102,8 +117,10 @@ export function useBoardData(session: Session | null): BoardDataReturn {
   };
 
   const handleAddColumn = async () => {
-    if (!newColumnTitle.trim() || !session?.user) return;
-    const newCol = { user_id: session.user.id, title: newColumnTitle, position: columns.length + 1 };
+    if (!newColumnTitle.trim() || !session?.user || !boardId) return;
+
+    // 👇 Save the new column with the board_id 👇
+    const newCol = { user_id: session.user.id, board_id: boardId, title: newColumnTitle, position: columns.length + 1 };
     const { data, error } = await supabase.from("columns").insert([newCol]).select();
     if (!error && data) {
       setColumns([...columns, data[0]]);
@@ -144,8 +161,10 @@ export function useBoardData(session: Session | null): BoardDataReturn {
   };
 
   const handleAddTask = async () => {
-    if (newTaskTitle.trim() === "" || columns.length === 0 || !session?.user) return;
-    const newTask = { title: newTaskTitle, status: columns[0].id, user_id: session.user.id };
+    if (newTaskTitle.trim() === "" || columns.length === 0 || !session?.user || !boardId) return;
+
+    // 👇 Save the new manual task with the board_id 👇
+    const newTask = { title: newTaskTitle, status: columns[0].id, user_id: session.user.id, board_id: boardId };
     const { data, error } = await supabase.from("tasks").insert([newTask]).select();
     if (!error && data) {
       setTasks([...tasks, { ...data[0], subtasks: [] }]);
@@ -156,20 +175,22 @@ export function useBoardData(session: Session | null): BoardDataReturn {
   };
 
   const handleAITask = async () => {
-    if (newTaskTitle.trim() === "" || columns.length === 0 || !session?.user) return;
+    if (newTaskTitle.trim() === "" || columns.length === 0 || !session?.user || !boardId) return;
     setIsAILoading(true); 
     
     try {
       const aiResult = await generateTaskWithAI(newTaskTitle, new Date().toLocaleString());
       
       if (aiResult && aiResult.title) {
+        // 👇 Save the new AI task with the board_id 👇
         const finalTask = { 
           title: aiResult.title,
           description: aiResult.description,
           priority: aiResult.priority,
           due_date: aiResult.due_date,
           status: columns[0].id, 
-          user_id: session.user.id 
+          user_id: session.user.id,
+          board_id: boardId
         };
         
         const { data: taskData, error: taskError } = await supabase.from("tasks").insert([finalTask]).select();
@@ -209,15 +230,12 @@ export function useBoardData(session: Session | null): BoardDataReturn {
     }
   };
 
-  // 👇 The Drag Logic is significantly updated here 👇
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over) return;
 
-    // 1. Determine if we are dragging a column or a task
     const activeType = active.data.current?.type;
     
-    // -- HANDLE COLUMN DRAG --
     if (activeType === "Column") {
       if (active.id === over.id) return;
 
@@ -225,10 +243,8 @@ export function useBoardData(session: Session | null): BoardDataReturn {
         const activeIndex = prev.findIndex((col) => col.id === active.id);
         const overIndex = prev.findIndex((col) => col.id === over.id);
         
-        // Reorder locally
         const newColumns = arrayMove(prev, activeIndex, overIndex);
         
-        // Update database with new positions in the background
         const updateDatabasePositions = async () => {
           for (let i = 0; i < newColumns.length; i++) {
             await supabase
@@ -244,7 +260,6 @@ export function useBoardData(session: Session | null): BoardDataReturn {
       return;
     }
 
-    // -- HANDLE TASK DRAG (existing logic) --
     const taskId = active.id as string;
 
     if (over.id === "trash") {
