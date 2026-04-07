@@ -38,7 +38,6 @@ export interface BoardDataReturn {
   fetchTasks: () => Promise<void>;
 }
 
-// 👇 Added boardId as the second parameter 👇
 export function useBoardData(session: Session | null, boardId: string): BoardDataReturn {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
@@ -60,7 +59,6 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
   const hasFetchedCols = useRef(false);
 
   useEffect(() => {
-    // 👇 Ensure we have both a user AND a boardId before fetching 👇
     if (session?.user && boardId) {
       fetchColumns();
       fetchTasks();
@@ -71,13 +69,43 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
     }
   }, [session, boardId]);
 
-  const fetchColumns = async () => {
+  // 👇 Added Supabase Realtime Subscription 👇
+  useEffect(() => {
+    if (!session?.user || !boardId) return;
+
+    const channel = supabase
+      .channel(`realtime-board-${boardId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tasks", filter: `board_id=eq.${boardId}` },
+        () => {
+          // A task was added, moved, or deleted by someone! Refetching...
+          fetchTasks();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "columns", filter: `board_id=eq.${boardId}` },
+        () => {
+          // A column was added, moved, or deleted by someone! Refetching...
+          fetchColumns(true); 
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, boardId]);
+
+  // 👇 Added 'forceFetch' parameter to allow Realtime updates to bypass the ref lock 👇
+  const fetchColumns = async (forceFetch = false) => {
     if (!session?.user || !boardId) return;
     
-    if (hasFetchedCols.current) return;
+    if (!forceFetch && hasFetchedCols.current) return;
     hasFetchedCols.current = true;
 
-    // 👇 Filter by board_id 👇
     let { data, error } = await supabase
       .from("columns")
       .select("*")
@@ -86,7 +114,6 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
       .order('position');
 
     if (data?.length === 0) {
-      // 👇 Attach default columns to this specific board_id 👇
       const defaultCols = [
         { user_id: session.user.id, board_id: boardId, title: "To Do", position: 1 },
         { user_id: session.user.id, board_id: boardId, title: "In Progress", position: 2 },
@@ -101,7 +128,6 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
   const fetchTasks = async () => {
     if (!session?.user || !boardId) return;
 
-    // 👇 Filter by board_id 👇
     const { data, error } = await supabase
       .from("tasks")
       .select('*, subtasks(*)')
@@ -119,7 +145,6 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
   const handleAddColumn = async () => {
     if (!newColumnTitle.trim() || !session?.user || !boardId) return;
 
-    // 👇 Save the new column with the board_id 👇
     const newCol = { user_id: session.user.id, board_id: boardId, title: newColumnTitle, position: columns.length + 1 };
     const { data, error } = await supabase.from("columns").insert([newCol]).select();
     if (!error && data) {
@@ -144,7 +169,7 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
     if (error) {
       toast.error("Failed to delete column");
       hasFetchedCols.current = false;
-      fetchColumns();
+      fetchColumns(true);
       fetchTasks();
     } else {
       toast.success("Column deleted!");
@@ -163,7 +188,6 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
   const handleAddTask = async () => {
     if (newTaskTitle.trim() === "" || columns.length === 0 || !session?.user || !boardId) return;
 
-    // 👇 Save the new manual task with the board_id 👇
     const newTask = { title: newTaskTitle, status: columns[0].id, user_id: session.user.id, board_id: boardId };
     const { data, error } = await supabase.from("tasks").insert([newTask]).select();
     if (!error && data) {
@@ -182,7 +206,6 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
       const aiResult = await generateTaskWithAI(newTaskTitle, new Date().toLocaleString());
       
       if (aiResult && aiResult.title) {
-        // 👇 Save the new AI task with the board_id 👇
         const finalTask = { 
           title: aiResult.title,
           description: aiResult.description,
