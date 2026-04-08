@@ -278,6 +278,7 @@ export default function BoardPage() {
 
     setIsInviting(true);
     try {
+      // 1. Find the user
       const { data: profileData } = await supabase
         .from("profiles")
         .select("id")
@@ -289,6 +290,7 @@ export default function BoardPage() {
         return;
       }
 
+      // 2. Add them to the board as pending
       const { error } = await supabase.from("board_members").insert({
           board_id: boardId,
           user_id: profileData.id,
@@ -297,6 +299,24 @@ export default function BoardPage() {
       });
 
       if (error) throw error;
+
+      // 👇 3. NEW LOGIC: Fire the notification to the other user! 👇
+      // First, let's quickly grab the board title so the notification looks nice
+      const { data: boardData } = await supabase
+        .from("boards")
+        .select("title")
+        .eq("id", boardId)
+        .single();
+
+      // Now insert the alert into the notifications table
+      await supabase.from("notifications").insert([{
+        user_id: profileData.id,
+        sender_id: session?.user.id,
+        type: 'workspace_invite',
+        message: `${session?.user.email} invited you to join "${boardData?.title || 'a workspace'}"`,
+        board_id: boardId
+      }]);
+      // 👆 END NEW LOGIC 👆
 
       toast.success(`Invite sent to ${inviteEmail}!`);
       setInviteEmail("");
