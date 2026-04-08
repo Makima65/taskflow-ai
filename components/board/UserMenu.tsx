@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Session } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
 
 interface UserMenuProps {
   session: Session | null;
@@ -64,6 +65,7 @@ export function UserMenu({
 }: UserMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const router = useRouter(); // <-- Initialize the Next.js router here!
 
   // Close the menu if the user clicks outside of it
   useEffect(() => {
@@ -112,6 +114,17 @@ export function UserMenu({
             }
           />
 
+          {/* Messages - Brand New Button! */}
+          <MenuItem
+            onClick={() => { router.push("/messages"); setIsOpen(false); }}
+            label="Messages"
+            icon={
+              <svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
+              </svg>
+            }
+          />
+
           {/* Share Board - Only shows if onOpenShare is provided */}
           {onOpenShare && (
             <MenuItem
@@ -124,6 +137,7 @@ export function UserMenu({
               }
             />
           )}
+
           {/* Notifications - Uses the Notification icon you wanted */}
           <MenuItem
             onClick={() => { onOpenNotifications(); setIsOpen(false); }}
