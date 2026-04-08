@@ -193,16 +193,33 @@ export default function Dashboard() {
   };
 
   const handleAcceptFriend = async (notifId: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    if (!session) return;
 
-    const { error } = await supabase.from("notifications").delete().eq("id", notifId);
-    
-    if (error) {
-      toast.error("Failed to accept: " + error.message);
+    // 1. Find the specific notification to get the sender_id
+    const notification = notifications.find(n => n.id === notifId);
+    if (!notification || !notification.sender_id) {
+      toast.error("Error: Could not find the sender's information.");
       return;
     }
 
-    toast.success("Friend request accepted!");
+    // 2. Remove it from the screen immediately
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+
+    // 3. Save the friendship to the database (both ways!)
+    const { error: friendError } = await supabase.from("friends").insert([
+      { user_id: session.user.id, friend_id: notification.sender_id },
+      { user_id: notification.sender_id, friend_id: session.user.id }
+    ]);
+
+    if (friendError) {
+      toast.error("Failed to add friend: " + friendError.message);
+      return;
+    }
+
+    // 4. Delete the notification
+    await supabase.from("notifications").delete().eq("id", notifId);
+    
+    toast.success("Friend request accepted! You are now friends.");
   };
 
   const handleDeclineFriend = async (notifId: string) => {

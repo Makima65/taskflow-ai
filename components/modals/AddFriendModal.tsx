@@ -38,6 +38,7 @@ export function AddFriendModal({ isOpen, onClose, session }: AddFriendModalProps
       .from("notifications")
       .insert([{
         user_id: targetUser.id,
+        sender_id: session.user.id, // 👈 ADDED THIS LINE!
         type: "friend_request",
         message: `${session.user.email} sent you a friend request!`
       }]);
