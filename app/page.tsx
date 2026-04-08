@@ -34,6 +34,10 @@ export default function Dashboard() {
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   
+  // Password Reset States
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     title: "",
@@ -42,19 +46,58 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
+    // 👇 BRUTE-FORCE CHECK: If the URL contains "recovery" at all, force the modal open!
+    if (typeof window !== "undefined" && window.location.hash.includes("recovery")) {
+      setIsResetPasswordOpen(true);
+      // We will let the URL stay for a second so Supabase can try to read it, 
+      // then clean it up shortly after.
+      setTimeout(() => {
+        window.history.replaceState(null, '', window.location.pathname);
+      }, 1000);
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) fetchBoards(session.user.id);
       else setIsLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       if (session) fetchBoards(session.user.id);
+      
+      // Listen for the recovery event from the email link (if formatted correctly)
+      if (event === "PASSWORD_RECOVERY") {
+        setIsResetPasswordOpen(true);
+        // Supabase has safely read the token, NOW we can clean the URL
+        window.history.replaceState(null, '', window.location.pathname);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+
+    // This updates the password for the currently logged-in user
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+
+    if (error) {
+      toast.error("Failed to update password: " + error.message);
+    } else {
+      toast.success("Password updated successfully!");
+      setIsResetPasswordOpen(false);
+      setNewPassword("");
+      router.replace("/"); // Cleans up the ugly URL hash
+    }
+  };
 
   const fetchBoards = async (userId: string) => {
     // 1. Fetch boards you created
@@ -165,8 +208,57 @@ export default function Dashboard() {
     );
   }
 
-  if (!session) return <AuthScreen />;
+  // 👇 FIX 2: If there is no session, we render the AuthScreen, 
+  // BUT we also render the Toaster and the Reset Password Modal so it can float on top!
+  if (!session) {
+    return (
+      <>
+        <Toaster richColors position="bottom-right" />
+        
+        {isResetPasswordOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-xl p-6 border border-zinc-200 dark:border-zinc-800">
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Reset Password</h2>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">Please enter your new password below to secure your account.</p>
+              <form onSubmit={handleUpdatePassword}>
+                <input 
+                  autoFocus
+                  type="password" 
+                  placeholder="New Password (min 6 chars)" 
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-zinc-900 dark:text-zinc-100 outline-none focus:border-purple-500 mb-6"
+                  required
+                />
+                <div className="flex justify-end gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setIsResetPasswordOpen(false);
+                      router.replace("/");
+                    }}
+                    className="px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded-lg transition-colors font-medium text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors font-medium text-sm"
+                  >
+                    Update Password
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+        
+        <AuthScreen />
+      </>
+    );
+  }
 
+  // 👇 The rest of your normal dashboard renders if there IS a session.
   return (
     <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-8 md:p-12 flex flex-col items-center">
       <Toaster richColors position="bottom-right" />
@@ -178,6 +270,45 @@ export default function Dashboard() {
         onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
         onConfirm={modalConfig.onConfirm}
       />
+
+      {/* We keep the modal here too in case they trigger a reset while already logged in */}
+      {isResetPasswordOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-xl p-6 border border-zinc-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Reset Password</h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">Please enter your new password below to secure your account.</p>
+            <form onSubmit={handleUpdatePassword}>
+              <input 
+                autoFocus
+                type="password" 
+                placeholder="New Password (min 6 chars)" 
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-zinc-900 dark:text-zinc-100 outline-none focus:border-purple-500 mb-6"
+                required
+              />
+              <div className="flex justify-end gap-3">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setIsResetPasswordOpen(false);
+                    router.replace("/");
+                  }}
+                  className="px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded-lg transition-colors font-medium text-sm"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors font-medium text-sm"
+                >
+                  Update Password
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* --- NOTIFICATIONS MODAL PLACEHOLDER --- */}
       {isNotificationsOpen && (
@@ -238,8 +369,8 @@ export default function Dashboard() {
           <UserMenu
             session={session}
             notifications={[]} 
-            onOpenNotifications={() => setIsNotificationsOpen(true)} // Wired up!
-            onOpenAddFriend={() => setIsAddFriendOpen(true)}         // Wired up!
+            onOpenNotifications={() => setIsNotificationsOpen(true)}
+            onOpenAddFriend={() => setIsAddFriendOpen(true)}
             onSignOut={() => supabase.auth.signOut()}
           />
         </div>

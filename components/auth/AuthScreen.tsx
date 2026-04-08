@@ -6,11 +6,13 @@ import { FloatingInput } from "@/components/ui/FloatingInput";
 import ThemeToggle from "@/app/ThemeToggle"; 
 import { supabase } from "@/lib/supabase";
 import { Toaster, toast } from "sonner";
+import { ForgotPasswordModal } from "./ForgotPasswordModal"; // Make sure this path is correct!
 
 export function AuthScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false); // Modal state
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,13 +29,10 @@ export function AuthScreen() {
       error: (err) => {
         const errorMsg = err.message.toLowerCase();
         
-        // Custom error for signing up with an existing account
         if (isSignUp && errorMsg.includes("already registered")) {
           return "This email already has an account. Please log in!";
         }
         
-        // Custom error for signing in with no account / wrong password
-        // (Note: Supabase groups "wrong password" and "no account" into "Invalid login credentials" for security)
         if (!isSignUp && errorMsg.includes("invalid login")) {
           return "No account found or incorrect password. Please sign up or try again!";
         }
@@ -43,31 +42,11 @@ export function AuthScreen() {
     });
   };
 
-  const handleForgotPassword = async () => {
-    if (!email) {
-      toast.error("Please enter your email address first so we know where to send the reset link.");
-      return;
-    }
-
-    const resetPromise = supabase.auth.resetPasswordForEmail(email, {
-      // This will redirect them back to your site after they click the email link
-      redirectTo: `${window.location.origin}/`, 
-    });
-
-    toast.promise(resetPromise, {
-      loading: 'Sending reset link...',
-      success: (result) => {
-        if (result.error) throw result.error;
-        return "Password reset link sent! Check your email inbox.";
-      },
-      error: (err) => err.message,
-    });
-  };
-
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950 relative">
       <Toaster richColors position="bottom-center" /> 
       <div className="absolute top-4 right-4"><ThemeToggle /></div>
+      
       <div className="w-[350px] bg-white dark:bg-zinc-900 shadow-[0px_5px_15px_rgba(0,0,0,0.35)] dark:shadow-[0px_5px_15px_rgba(0,0,0,0.8)] rounded-[10px] box-border p-[20px_30px]">
         <h1 className="text-center font-sans mt-[10px] mb-[30px] text-[28px] font-extrabold text-zinc-900 dark:text-zinc-50">
           {isSignUp ? "Create Account" : "Welcome back"}
@@ -78,9 +57,8 @@ export function AuthScreen() {
             <FloatingInput label="Password" type="password" value={password} onChange={(e: any) => setPassword(e.target.value)} />
             {!isSignUp && (
               <p className="underline m-0 text-right text-[#747474] decoration-[#747474]">
-                {/* Changed the onClick to trigger our new function */}
                 <span 
-                  onClick={handleForgotPassword} 
+                  onClick={() => setIsForgotModalOpen(true)} // Opens the modal!
                   className="cursor-pointer font-sans text-[11px] font-bold hover:text-black dark:hover:text-white transition-colors"
                 >
                   Forgot Password?
@@ -99,6 +77,12 @@ export function AuthScreen() {
           </span>
         </p>
       </div>
+
+      {/* Render the modal on top of everything when isForgotModalOpen is true */}
+      <ForgotPasswordModal 
+        isOpen={isForgotModalOpen} 
+        onClose={() => setIsForgotModalOpen(false)} 
+      />
     </div>
   );
 }
