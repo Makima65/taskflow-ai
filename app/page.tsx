@@ -34,7 +34,7 @@ export default function Dashboard() {
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   
-  // Notifications State 👇 NEW
+  // Notifications State
   const [notifications, setNotifications] = useState<any[]>([]);
   
   // Password Reset States
@@ -60,7 +60,7 @@ export default function Dashboard() {
       setSession(session);
       if (session) {
         fetchBoards(session.user.id);
-        fetchNotifications(session.user.id); // 👇 NEW
+        fetchNotifications(session.user.id);
       } else setIsLoading(false);
     });
 
@@ -68,7 +68,7 @@ export default function Dashboard() {
       setSession(session);
       if (session) {
         fetchBoards(session.user.id);
-        fetchNotifications(session.user.id); // 👇 NEW
+        fetchNotifications(session.user.id);
       }
       
       if (event === "PASSWORD_RECOVERY") {
@@ -99,7 +99,6 @@ export default function Dashboard() {
     }
   };
 
-  // 👇 NEW: Fetch Notifications
   const fetchNotifications = async (userId: string) => {
     const { data, error } = await supabase
       .from("notifications")
@@ -120,12 +119,12 @@ export default function Dashboard() {
       .select("*")
       .eq("user_id", userId);
 
-    // 2. Fetch boards shared with you (ONLY ACCEPTED ONES) 👇 UPDATED
+    // 2. Fetch boards shared with you (ONLY ACCEPTED ONES)
     const { data: sharedMemberships, error: sharedError } = await supabase
       .from("board_members")
       .select("board_id, boards(*)")
       .eq("user_id", userId)
-      .eq("status", "accepted"); // <-- Crucial so pending invites don't show as boards yet
+      .eq("status", "accepted"); 
 
     if (ownedError || sharedError) {
       console.error("Error fetching boards", ownedError || sharedError);
@@ -145,21 +144,28 @@ export default function Dashboard() {
     setIsLoading(false);
   };
 
-  // 👇 NEW: Accept / Decline Handlers
+  // 👇 UPDATED: Added .select() and 0-rows check to catch silent failures
   const handleAcceptInvite = async (notifId: string, boardId: string) => {
     if (!session) return;
     
-    // 1. Update status to accepted (NOW WITH ERROR CHECKING)
-    const { error: updateError } = await supabase
+    const { data, error: updateError } = await supabase
       .from("board_members")
       .update({ status: "accepted" })
       .eq("board_id", boardId)
-      .eq("user_id", session.user.id);
+      .eq("user_id", session.user.id)
+      .select(); 
       
     if (updateError) {
       toast.error("Database Error: " + updateError.message);
       console.error("Update failed:", updateError);
-      return; // Stop here if it fails!
+      return; 
+    }
+
+    // This catches RLS issues or missing rows!
+    if (!data || data.length === 0) {
+      toast.error("Update blocked! Check Supabase RLS policies or missing row.");
+      console.error("0 rows updated. The row either doesn't exist or RLS blocked it.");
+      return;
     }
     
     // 2. Clear the notification
@@ -366,7 +372,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 👇 NEW: POPULATED NOTIFICATIONS MODAL */}
       {isNotificationsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-xl p-6 border border-zinc-200 dark:border-zinc-800">
@@ -441,7 +446,7 @@ export default function Dashboard() {
           
           <UserMenu
             session={session}
-            notifications={notifications} // 👇 NEW: Passes actual array
+            notifications={notifications}
             onOpenNotifications={() => setIsNotificationsOpen(true)}
             onOpenAddFriend={() => setIsAddFriendOpen(true)}
             onSignOut={() => supabase.auth.signOut()}
