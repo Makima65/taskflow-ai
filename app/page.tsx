@@ -110,7 +110,7 @@ export default function Dashboard() {
       .from("notifications")
       .select("*")
       .eq("user_id", userId)
-      .eq("type", "workspace_invite")
+      // ❌ I DELETED THE .EQ("TYPE") LINE HERE!
       .order("created_at", { ascending: false });
     
     if (!error && data) {
@@ -290,7 +290,7 @@ export default function Dashboard() {
 return (
     <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-8 md:p-12 flex flex-col items-center">
       <Toaster richColors position="bottom-right" />
-      
+
 <NotificationsModal 
   isOpen={isNotificationsOpen}
   onClose={() => setIsNotificationsOpen(false)}
