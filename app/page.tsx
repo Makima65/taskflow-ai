@@ -149,11 +149,28 @@ export default function Dashboard() {
   const handleAcceptInvite = async (notifId: string, boardId: string) => {
     if (!session) return;
     
-    // 1. Update status to accepted
-    await supabase.from("board_members").update({ status: "accepted" }).eq("board_id", boardId).eq("user_id", session.user.id);
+    // 1. Update status to accepted (NOW WITH ERROR CHECKING)
+    const { error: updateError } = await supabase
+      .from("board_members")
+      .update({ status: "accepted" })
+      .eq("board_id", boardId)
+      .eq("user_id", session.user.id);
+      
+    if (updateError) {
+      toast.error("Database Error: " + updateError.message);
+      console.error("Update failed:", updateError);
+      return; // Stop here if it fails!
+    }
     
     // 2. Clear the notification
-    await supabase.from("notifications").delete().eq("id", notifId);
+    const { error: deleteError } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("id", notifId);
+
+    if (deleteError) {
+      console.error("Failed to delete notification:", deleteError);
+    }
     
     toast.success("Workspace invite accepted!");
     fetchBoards(session.user.id);
@@ -163,12 +180,18 @@ export default function Dashboard() {
   const handleDeclineInvite = async (notifId: string, boardId: string) => {
     if (!session) return;
 
-    // 1. Remove them entirely from the board members
-    await supabase.from("board_members").delete().eq("board_id", boardId).eq("user_id", session.user.id);
+    const { error } = await supabase
+      .from("board_members")
+      .delete()
+      .eq("board_id", boardId)
+      .eq("user_id", session.user.id);
+      
+    if (error) {
+      toast.error("Failed to decline: " + error.message);
+      return;
+    }
     
-    // 2. Clear the notification
     await supabase.from("notifications").delete().eq("id", notifId);
-    
     toast.info("Workspace invite declined.");
     fetchNotifications(session.user.id);
   };
