@@ -2,8 +2,12 @@ interface NotificationsModalProps {
   isOpen: boolean;
   onClose: () => void;
   notifications: any[];
+  // Workspace Handlers
   onAccept: (notifId: string, boardId: string) => void;
   onDecline: (notifId: string, boardId: string) => void;
+  // Friend Handlers (Optional for now so page.tsx doesn't break!)
+  onAcceptFriend?: (notifId: string) => void;
+  onDeclineFriend?: (notifId: string) => void;
 }
 
 export function NotificationsModal({ 
@@ -11,7 +15,9 @@ export function NotificationsModal({
   onClose, 
   notifications, 
   onAccept, 
-  onDecline 
+  onDecline,
+  onAcceptFriend,
+  onDeclineFriend
 }: NotificationsModalProps) {
   
   if (!isOpen) return null;
@@ -30,18 +36,43 @@ export function NotificationsModal({
               <div key={notif.id} className="p-4 mb-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg border border-zinc-100 dark:border-zinc-800 flex flex-col gap-3">
                 <p className="text-sm text-zinc-700 dark:text-zinc-300">{notif.message}</p>
                 <div className="flex gap-2">
-                  <button 
-                    onClick={() => onAccept(notif.id, notif.board_id)} 
-                    className="flex-1 bg-purple-600 text-white text-sm py-2 rounded-md hover:bg-purple-700 transition-colors"
-                  >
-                    Accept
-                  </button>
-                  <button 
-                    onClick={() => onDecline(notif.id, notif.board_id)} 
-                    className="flex-1 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm py-2 rounded-md hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors"
-                  >
-                    Decline
-                  </button>
+                  
+                  {/* WORKSPACE INVITE BUTTONS */}
+                  {notif.type === "workspace_invite" && (
+                    <>
+                      <button 
+                        onClick={() => onAccept(notif.id, notif.board_id)} 
+                        className="flex-1 bg-purple-600 text-white text-sm py-2 rounded-md hover:bg-purple-700 transition-colors"
+                      >
+                        Accept
+                      </button>
+                      <button 
+                        onClick={() => onDecline(notif.id, notif.board_id)} 
+                        className="flex-1 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm py-2 rounded-md hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors"
+                      >
+                        Decline
+                      </button>
+                    </>
+                  )}
+
+                  {/* FRIEND REQUEST BUTTONS */}
+                  {notif.type === "friend_request" && (
+                    <>
+                      <button 
+                        onClick={() => onAcceptFriend && onAcceptFriend(notif.id)} 
+                        className="flex-1 bg-blue-600 text-white text-sm py-2 rounded-md hover:bg-blue-700 transition-colors"
+                      >
+                        Accept Friend
+                      </button>
+                      <button 
+                        onClick={() => onDeclineFriend && onDeclineFriend(notif.id)} 
+                        className="flex-1 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm py-2 rounded-md hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors"
+                      >
+                        Decline
+                      </button>
+                    </>
+                  )}
+
                 </div>
               </div>
             ))
