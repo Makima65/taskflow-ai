@@ -1,7 +1,7 @@
 "use client";
 
 import { Session } from "@supabase/supabase-js";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { 
@@ -35,10 +35,21 @@ export default function BoardPage() {
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [activeView, setActiveView] = useState<"board" | "calendar">("board");
 
-  // 👇 Share Modal State 👇
+  // Share Modal & Workspace Members
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("editor");
   const [isInviting, setIsInviting] = useState(false);
+  const [boardMembers, setBoardMembers] = useState<any[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+
+  // Friend System & Notifications State
+  const [friends, setFriends] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [friendAddEmail, setFriendAddEmail] = useState("");
+  const [isSendingFriendReq, setIsSendingFriendReq] = useState(false);
 
   const params = useParams();
   const router = useRouter();
@@ -94,61 +105,241 @@ export default function BoardPage() {
     toast.success("Successfully signed out!");
   };
 
-  // 👇 Handle Inviting User 👇
+  // 👇 Unified fetch for Members, Friends, and Notifications 👇
+  const fetchAllData = async () => {
+    if (!session?.user?.id) return;
+    setIsLoadingMembers(true);
+    
+    // 1. Fetch Board Members
+    const { data: members } = await supabase
+      .from("board_members")
+      .select("user_id, role, status")
+      .eq("board_id", boardId);
+
+    // 2. Fetch Friend Records (both sent and received)
+    const { data: friendRecords } = await supabase
+      .from("friends")
+      .select("*")
+      .or(`user_id.eq.${session.user.id},friend_id.eq.${session.user.id}`);
+
+    const userIdsToFetch = new Set<string>();
+    const acceptedFriends: any[] = [];
+    const pendingNotifications: any[] = [];
+
+    if (friendRecords) {
+      friendRecords.forEach((record) => {
+        if (record.status === 'accepted') {
+          const otherId = record.user_id === session.user.id ? record.friend_id : record.user_id;
+          acceptedFriends.push({ id: otherId });
+          userIdsToFetch.add(otherId);
+        } else if (record.status === 'pending' && record.friend_id === session.user.id) {
+          // Requests sent TO me
+          pendingNotifications.push({ recordId: record.id, requesterId: record.user_id });
+          userIdsToFetch.add(record.user_id);
+        }
+      });
+    }
+
+    if (members) members.forEach(m => userIdsToFetch.add(m.user_id));
+
+    // 3. Fetch all needed Profiles in one go
+    if (userIdsToFetch.size > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, email")
+        .in("id", Array.from(userIdsToFetch));
+
+      // Map emails to members
+      if (members) {
+        setBoardMembers(members.map(m => ({
+          ...m,
+          email: profiles?.find(p => p.id === m.user_id)?.email || "Unknown"
+        })));
+      }
+
+      // Map emails to friends
+      setFriends(acceptedFriends.map(af => ({
+        id: af.id,
+        email: profiles?.find(p => p.id === af.id)?.email || "Unknown"
+      })));
+
+      // Map emails to notifications
+      setNotifications(pendingNotifications.map(pn => ({
+        recordId: pn.recordId,
+        email: profiles?.find(p => p.id === pn.requesterId)?.email || "Unknown"
+      })));
+    } else {
+      setBoardMembers([]);
+      setFriends([]);
+      setNotifications([]);
+    }
+    
+    setIsLoadingMembers(false);
+  };
+
+  useEffect(() => {
+    if (session?.user?.id) fetchAllData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, isShareModalOpen]);
+
+
+  // ============================
+  // FRIEND SYSTEM LOGIC
+  // ============================
+
+  const handleSendFriendRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!friendAddEmail.trim()) return;
+
+    if (friendAddEmail.toLowerCase() === session?.user?.email?.toLowerCase()) {
+      toast.error("You can't add yourself!");
+      return;
+    }
+
+    setIsSendingFriendReq(true);
+    try {
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", friendAddEmail.toLowerCase().trim())
+        .single();
+
+      if (!profileData) {
+        toast.error("User not found!");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("friends")
+        .insert({
+          user_id: session?.user.id,
+          friend_id: profileData.id,
+          status: 'pending'
+        });
+
+      if (error) throw error;
+      toast.success("Friend request sent!");
+      setFriendAddEmail("");
+      setIsAddFriendModalOpen(false);
+    } catch (err: any) {
+      toast.error(err.code === "23505" ? "Request already sent or you're already friends!" : "Error sending request.");
+    } finally {
+      setIsSendingFriendReq(false);
+    }
+  };
+
+  const handleAcceptFriend = async (recordId: string) => {
+    const { error } = await supabase
+      .from("friends")
+      .update({ status: 'accepted' })
+      .eq("id", recordId);
+
+    if (error) {
+      toast.error("Failed to accept friend request");
+    } else {
+      toast.success("Friend added!");
+      fetchAllData();
+    }
+  };
+
+  const handleDeclineFriend = async (recordId: string) => {
+    const { error } = await supabase
+      .from("friends")
+      .delete()
+      .eq("id", recordId);
+
+    if (error) {
+      toast.error("Failed to decline friend request");
+    } else {
+      toast.info("Friend request declined");
+      fetchAllData();
+    }
+  };
+
+
+  // ============================
+  // SHARE / WORKSPACE LOGIC
+  // ============================
+
+  const suggestedFriends = useMemo(() => {
+    if (!inviteEmail || inviteEmail.includes("@")) return [];
+    return friends.filter(f => f.email.toLowerCase().includes(inviteEmail.toLowerCase()));
+  }, [inviteEmail, friends]);
+
   const handleInviteUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
 
-    setIsInviting(true);
-
-    // Call the secure Postgres function we created earlier
-    const { error } = await supabase.rpc("add_board_member_by_email", {
-      p_board_id: boardId,
-      p_email: inviteEmail.toLowerCase().trim(),
-    });
-
-    if (error) {
-      if (error.message.includes("No account found")) {
-        toast.error("No user found with that email. Make sure they have signed up!");
-      } else {
-        toast.error("Failed to invite user.");
-        console.error(error);
-      }
-    } else {
-      toast.success("User invited successfully!");
-      setInviteEmail("");
-      setIsShareModalOpen(false);
+    if (inviteEmail.toLowerCase() === session?.user?.email?.toLowerCase()) {
+      toast.error("You are already a member!");
+      return;
     }
-    
-    setIsInviting(false);
+
+    setIsInviting(true);
+    try {
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", inviteEmail.toLowerCase().trim())
+        .single();
+
+      if (!profileData) {
+        toast.error("User not found!");
+        return;
+      }
+
+      const { error } = await supabase.from("board_members").insert({
+          board_id: boardId,
+          user_id: profileData.id,
+          role: inviteRole,
+          status: "pending"
+      });
+
+      if (error) throw error;
+
+      toast.success(`Invite sent to ${inviteEmail}!`);
+      setInviteEmail("");
+      fetchAllData(); 
+    } catch (error) {
+      toast.error("User already in workspace or error occurred.");
+    } finally {
+      setIsInviting(false);
+    }
   };
 
-  // Configure dnd-kit sensors for mobile dragging vs scrolling
+  const handleUpdateMemberRole = async (userId: string, newRole: "editor" | "viewer") => {
+    setBoardMembers(prev => prev.map(m => m.user_id === userId ? { ...m, role: newRole } : m));
+    const { error } = await supabase.from("board_members").update({ role: newRole }).eq("board_id", boardId).eq("user_id", userId);
+    if (error) {
+      toast.error("Failed to update user role");
+      fetchAllData(); 
+    } else toast.success("Role updated!");
+  };
+
+  const handleRemoveMemberClick = (userId: string, email: string) => {
+    setModalConfig({
+      isOpen: true,
+      title: "Remove Member?",
+      description: `Are you sure you want to remove ${email} from this workspace?`,
+      onConfirm: async () => {
+        const { error } = await supabase.from("board_members").delete().eq("board_id", boardId).eq("user_id", userId);
+        if (error) toast.error("Failed to remove user");
+        else {
+          toast.success("User removed");
+          fetchAllData();
+        }
+        setModalConfig({ ...modalConfig, isOpen: false }); // <-- FIXED TS ERROR HERE
+      }
+    });
+  };
+
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 250,
-        tolerance: 5,
-      },
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
 
-  if (isSessionLoading) {
-    return (
-      <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-      </main>
-    );
-  }
-
-  if (!session) {
-    return <AuthScreen />;
-  }
+  if (isSessionLoading) return <main className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div></main>;
+  if (!session) return <AuthScreen />;
 
   return (
     <main className="min-h-screen bg-zinc-50 p-8 md:p-12 dark:bg-zinc-950 flex flex-col items-center relative">
@@ -162,40 +353,26 @@ export default function BoardPage() {
         onConfirm={modalConfig.onConfirm}
       />
 
-      {/* 👇 Share Modal Overlay 👇 */}
-      {isShareModalOpen && (
+      {/* ADD FRIEND MODAL */}
+      {isAddFriendModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl w-full max-w-md p-6 border border-zinc-200 dark:border-zinc-800">
-            <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Share Workspace</h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
-              Enter your friend's email address to invite them to this board. They must have an existing account.
-            </p>
-
-            <form onSubmit={handleInviteUser} className="flex flex-col gap-4">
+            <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Add a Friend</h2>
+            <p className="text-sm text-zinc-500 mb-6">Send a request to easily add them to future workspaces.</p>
+            <form onSubmit={handleSendFriendRequest} className="flex flex-col gap-4">
               <input
                 autoFocus
                 type="email"
-                placeholder="friend@example.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-md px-3 py-2 text-zinc-900 dark:text-zinc-100 outline-none focus:border-purple-500"
+                placeholder="Friend's exact email address..."
+                value={friendAddEmail}
+                onChange={(e) => setFriendAddEmail(e.target.value)}
+                className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-md px-3 py-2 text-sm outline-none focus:border-purple-500"
                 required
               />
               <div className="flex justify-end gap-2 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsShareModalOpen(false)}
-                  className="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors"
-                  disabled={isInviting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isInviting}
-                  className="px-4 py-2 text-sm text-white bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isInviting ? "Inviting..." : "Invite User"}
+                <button type="button" onClick={() => setIsAddFriendModalOpen(false)} className="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">Cancel</button>
+                <button type="submit" disabled={isSendingFriendReq || !friendAddEmail} className="px-4 py-2 text-sm text-white bg-purple-600 hover:bg-purple-700 rounded-md">
+                  {isSendingFriendReq ? "Sending..." : "Send Request"}
                 </button>
               </div>
             </form>
@@ -203,21 +380,136 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* 👇 Top Navigation Bar 👇 */}
+      {/* SHARE MODAL */}
+      {isShareModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl w-full max-w-lg p-6 border border-zinc-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold mb-2">Share Workspace</h2>
+            
+            <form onSubmit={handleInviteUser} className="flex flex-col gap-4 mb-6">
+              <div className="flex gap-2 relative">
+                <div className="flex-1 relative">
+                  <input
+                    autoFocus
+                    type="email"
+                    placeholder="Search friends or type exact email..."
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-md px-3 py-2 text-sm outline-none focus:border-purple-500"
+                    required
+                  />
+                  {suggestedFriends.length > 0 && (
+                    <div className="absolute top-full left-0 w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md shadow-lg z-10 mt-1 overflow-hidden">
+                      {suggestedFriends.map(friend => (
+                        <button key={friend.id} type="button" onClick={() => setInviteEmail(friend.email)} className="w-full text-left px-4 py-2 text-sm hover:bg-purple-50 dark:hover:bg-purple-900/20 text-zinc-700 dark:text-zinc-300 transition-colors">
+                          {friend.email}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as "editor" | "viewer")} className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-md px-3 py-2 text-sm outline-none focus:border-purple-500">
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              </div>
+              
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setIsShareModalOpen(false)} className="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">Done</button>
+                <button type="submit" disabled={isInviting || !inviteEmail} className="px-4 py-2 text-sm text-white bg-purple-600 rounded-md">
+                  {isInviting ? "Sending..." : "Send Invite"}
+                </button>
+              </div>
+            </form>
+
+            <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4">
+              <h3 className="text-sm font-semibold mb-3">People with access</h3>
+              <div className="flex flex-col gap-3 max-h-48 overflow-y-auto pr-2">
+                {boardMembers.map((member, idx) => (
+                  <div key={idx} className="flex justify-between items-center group">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">{member.email}</span>
+                      <span className={`text-xs ${member.status === 'pending' ? 'text-amber-500' : 'text-zinc-500'}`}>
+                        {member.status === 'pending' ? 'Invite Pending' : 'Joined'}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      {member.user_id === session?.user?.id ? (
+                        <span className="text-sm text-zinc-500 italic mr-2">You</span>
+                      ) : (
+                        <>
+                          <select value={member.role} onChange={(e) => handleUpdateMemberRole(member.user_id, e.target.value as "editor" | "viewer")} className="bg-transparent text-sm text-zinc-600 dark:text-zinc-400 outline-none">
+                            <option value="editor">Editor</option>
+                            <option value="viewer">Viewer</option>
+                          </select>
+                          <button onClick={() => handleRemoveMemberClick(member.user_id, member.email)} className="text-zinc-400 hover:text-red-500 opacity-0 group-hover:opacity-100 p-1">✕</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Top Navigation Bar with New Buttons */}
       <div className="w-full flex justify-between items-center mb-6 max-w-[1600px]">
-        <button 
-          onClick={() => router.push("/")}
-          className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-lg text-zinc-600 dark:text-zinc-400 hover:text-purple-600 dark:hover:text-purple-400 hover:border-purple-300 dark:hover:border-purple-700 hover:shadow-sm transition-all flex items-center gap-2"
-        >
+        <button onClick={() => router.push("/")} className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-lg text-zinc-600 hover:text-purple-600 shadow-sm transition-all flex items-center gap-2">
           🔙 Back to Workspaces
         </button>
 
-        <button 
-          onClick={() => setIsShareModalOpen(true)}
-          className="text-sm font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800 px-4 py-2 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors flex items-center gap-2 shadow-sm"
-        >
-          🤝 Share Workspace
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Notifications Dropdown */}
+          <div className="relative">
+            <button 
+              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-2 rounded-lg text-zinc-600 hover:text-purple-600 shadow-sm transition-all relative"
+            >
+              🔔
+              {notifications.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                  {notifications.length}
+                </span>
+              )}
+            </button>
+            
+            {isNotificationsOpen && (
+              <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl z-40 overflow-hidden">
+                <div className="p-3 border-b border-zinc-100 dark:border-zinc-800">
+                  <h3 className="text-sm font-bold">Notifications</h3>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-sm text-center text-zinc-500">No new notifications</div>
+                  ) : (
+                    notifications.map(notif => (
+                      <div key={notif.recordId} className="p-3 border-b border-zinc-100 dark:border-zinc-800 flex flex-col gap-2">
+                        <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                          <strong className="text-zinc-900 dark:text-white">{notif.email}</strong> wants to be your friend.
+                        </span>
+                        <div className="flex gap-2">
+                          <button onClick={() => handleAcceptFriend(notif.recordId)} className="flex-1 bg-purple-600 text-white text-xs py-1.5 rounded-md hover:bg-purple-700">Accept</button>
+                          <button onClick={() => handleDeclineFriend(notif.recordId)} className="flex-1 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs py-1.5 rounded-md hover:bg-zinc-300">Decline</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => setIsAddFriendModalOpen(true)} className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-lg text-zinc-600 hover:text-purple-600 shadow-sm transition-all flex items-center gap-2">
+            👥 Add Friend
+          </button>
+
+          <button onClick={() => setIsShareModalOpen(true)} className="text-sm font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 border border-purple-200 px-4 py-2 rounded-lg hover:bg-purple-200 transition-colors flex items-center gap-2 shadow-sm">
+            🤝 Share
+          </button>
+        </div>
       </div>
 
       <BoardHeader 
@@ -234,43 +526,18 @@ export default function BoardPage() {
 
       <div className="flex flex-col md:flex-row justify-center items-center w-full mb-8 gap-4">
         <div className="flex bg-zinc-200 dark:bg-zinc-800 p-1 rounded-lg">
-          <button 
-            onClick={() => setActiveView("board")}
-            className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${activeView === "board" ? "bg-white dark:bg-zinc-700 shadow text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"}`}
-          >
-            Board
-          </button>
-          <button 
-            onClick={() => setActiveView("calendar")}
-            className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${activeView === "calendar" ? "bg-white dark:bg-zinc-700 shadow text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"}`}
-          >
-            Calendar
-          </button>
+          <button onClick={() => setActiveView("board")} className={`px-4 py-1.5 rounded-md text-sm font-semibold ${activeView === "board" ? "bg-white shadow text-zinc-900" : "text-zinc-600"}`}>Board</button>
+          <button onClick={() => setActiveView("calendar")} className={`px-4 py-1.5 rounded-md text-sm font-semibold ${activeView === "calendar" ? "bg-white shadow text-zinc-900" : "text-zinc-600"}`}>Calendar</button>
         </div>
-
-        <BoardFilters 
-          filterPriority={filterPriority}
-          setFilterPriority={setFilterPriority}
-          sortBy={sortBy}
-          setSortBy={setSortBy}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-        />
+        <BoardFilters filterPriority={filterPriority} setFilterPriority={setFilterPriority} sortBy={sortBy} setSortBy={setSortBy} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
       </div>
 
       {activeView === "board" ? (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="flex flex-col md:flex-row gap-6 md:gap-8 pb-8 md:pb-12 snap-mandatory w-full justify-center md:items-start overflow-y-auto md:overflow-x-auto p-4 md:p-8 md:snap-x">
-            
-            <SortableContext 
-              items={columns.map(col => col.id)} 
-              strategy={horizontalListSortingStrategy}
-            >
+          <div className="flex flex-col md:flex-row gap-6 md:gap-8 pb-8 w-full justify-center overflow-x-auto p-4 md:p-8">
+            <SortableContext items={columns.map(col => col.id)} strategy={horizontalListSortingStrategy}>
               {columns.map((col) => (
-                <div 
-                  key={col.id} 
-                  className="snap-start md:snap-center shrink-0 w-full md:w-80"
-                >
+                <div key={col.id} className="w-full md:w-80 shrink-0">
                   <DroppableColumn 
                     column={col} 
                     tasks={processedTasks.filter((t) => t.status === col.id)} 
@@ -284,27 +551,14 @@ export default function BoardPage() {
                 </div>
               ))}
             </SortableContext>
-            
-            <div className="shrink-0 snap-start md:snap-center w-full md:w-80">
-              <AddColumnModal 
-                newColumnTitle={newColumnTitle}
-                setNewColumnTitle={setNewColumnTitle}
-                onAddColumn={handleAddColumn}
-              />
+            <div className="w-full md:w-80 shrink-0">
+              <AddColumnModal newColumnTitle={newColumnTitle} setNewColumnTitle={setNewColumnTitle} onAddColumn={handleAddColumn} />
             </div>
-
           </div>
-          
           <TrashZone />
         </DndContext>
       ) : (
-        <div className="w-full pb-12">
-          <CalendarView 
-            tasks={processedTasks.filter(task => 
-              columns.some(col => col.id === task.status)
-            )} 
-          />
-        </div>
+        <div className="w-full pb-12"><CalendarView tasks={processedTasks.filter(task => columns.some(col => col.id === task.status))} /></div>
       )}
     </main>
   );
