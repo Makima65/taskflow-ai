@@ -34,6 +34,9 @@ export default function Dashboard() {
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   
+  // Notifications State 👇 NEW
+  const [notifications, setNotifications] = useState<any[]>([]);
+  
   // Password Reset States
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -46,11 +49,8 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    // 👇 BRUTE-FORCE CHECK: If the URL contains "recovery" at all, force the modal open!
     if (typeof window !== "undefined" && window.location.hash.includes("recovery")) {
       setIsResetPasswordOpen(true);
-      // We will let the URL stay for a second so Supabase can try to read it, 
-      // then clean it up shortly after.
       setTimeout(() => {
         window.history.replaceState(null, '', window.location.pathname);
       }, 1000);
@@ -58,18 +58,21 @@ export default function Dashboard() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchBoards(session.user.id);
-      else setIsLoading(false);
+      if (session) {
+        fetchBoards(session.user.id);
+        fetchNotifications(session.user.id); // 👇 NEW
+      } else setIsLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      if (session) fetchBoards(session.user.id);
+      if (session) {
+        fetchBoards(session.user.id);
+        fetchNotifications(session.user.id); // 👇 NEW
+      }
       
-      // Listen for the recovery event from the email link (if formatted correctly)
       if (event === "PASSWORD_RECOVERY") {
         setIsResetPasswordOpen(true);
-        // Supabase has safely read the token, NOW we can clean the URL
         window.history.replaceState(null, '', window.location.pathname);
       }
     });
@@ -84,10 +87,7 @@ export default function Dashboard() {
       return;
     }
 
-    // This updates the password for the currently logged-in user
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword
-    });
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
 
     if (error) {
       toast.error("Failed to update password: " + error.message);
@@ -95,7 +95,21 @@ export default function Dashboard() {
       toast.success("Password updated successfully!");
       setIsResetPasswordOpen(false);
       setNewPassword("");
-      router.replace("/"); // Cleans up the ugly URL hash
+      router.replace("/");
+    }
+  };
+
+  // 👇 NEW: Fetch Notifications
+  const fetchNotifications = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("type", "workspace_invite")
+      .order("created_at", { ascending: false });
+    
+    if (!error && data) {
+      setNotifications(data);
     }
   };
 
@@ -106,11 +120,12 @@ export default function Dashboard() {
       .select("*")
       .eq("user_id", userId);
 
-    // 2. Fetch boards shared with you
+    // 2. Fetch boards shared with you (ONLY ACCEPTED ONES) 👇 UPDATED
     const { data: sharedMemberships, error: sharedError } = await supabase
       .from("board_members")
       .select("board_id, boards(*)")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("status", "accepted"); // <-- Crucial so pending invites don't show as boards yet
 
     if (ownedError || sharedError) {
       console.error("Error fetching boards", ownedError || sharedError);
@@ -118,22 +133,44 @@ export default function Dashboard() {
       return;
     }
 
-    // Extract the actual board data from the shared memberships
     const sharedBoards = (sharedMemberships || [])
       .map((membership: any) => membership.boards)
       .filter((board) => board !== null) as Board[];
 
-    // 3. Combine them, remove duplicates (just in case), and sort by date
     const allBoards = [...(ownedBoards || []), ...sharedBoards];
-    
-    // Quick trick to remove duplicates based on board ID
     const uniqueBoards = Array.from(new Map(allBoards.map(b => [b.id, b])).values());
-    
-    // Sort newest first
     uniqueBoards.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     setBoards(uniqueBoards);
     setIsLoading(false);
+  };
+
+  // 👇 NEW: Accept / Decline Handlers
+  const handleAcceptInvite = async (notifId: string, boardId: string) => {
+    if (!session) return;
+    
+    // 1. Update status to accepted
+    await supabase.from("board_members").update({ status: "accepted" }).eq("board_id", boardId).eq("user_id", session.user.id);
+    
+    // 2. Clear the notification
+    await supabase.from("notifications").delete().eq("id", notifId);
+    
+    toast.success("Workspace invite accepted!");
+    fetchBoards(session.user.id);
+    fetchNotifications(session.user.id);
+  };
+
+  const handleDeclineInvite = async (notifId: string, boardId: string) => {
+    if (!session) return;
+
+    // 1. Remove them entirely from the board members
+    await supabase.from("board_members").delete().eq("board_id", boardId).eq("user_id", session.user.id);
+    
+    // 2. Clear the notification
+    await supabase.from("notifications").delete().eq("id", notifId);
+    
+    toast.info("Workspace invite declined.");
+    fetchNotifications(session.user.id);
   };
 
   const handleCreateBoard = async (e: React.FormEvent) => {
@@ -208,8 +245,6 @@ export default function Dashboard() {
     );
   }
 
-  // 👇 FIX 2: If there is no session, we render the AuthScreen, 
-  // BUT we also render the Toaster and the Reset Password Modal so it can float on top!
   if (!session) {
     return (
       <>
@@ -258,7 +293,6 @@ export default function Dashboard() {
     );
   }
 
-  // 👇 The rest of your normal dashboard renders if there IS a session.
   return (
     <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-8 md:p-12 flex flex-col items-center">
       <Toaster richColors position="bottom-right" />
@@ -271,7 +305,6 @@ export default function Dashboard() {
         onConfirm={modalConfig.onConfirm}
       />
 
-      {/* We keep the modal here too in case they trigger a reset while already logged in */}
       {isResetPasswordOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-xl p-6 border border-zinc-200 dark:border-zinc-800">
@@ -310,15 +343,33 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* --- NOTIFICATIONS MODAL PLACEHOLDER --- */}
+      {/* 👇 NEW: POPULATED NOTIFICATIONS MODAL */}
       {isNotificationsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-xl p-6 border border-zinc-200 dark:border-zinc-800">
             <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-4">Notifications</h2>
-            <div className="py-8 text-center text-zinc-500 dark:text-zinc-400">
-              <p>No new notifications.</p>
+            
+            <div className="max-h-72 overflow-y-auto pr-2">
+              {notifications.length === 0 ? (
+                <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                  <p>No new notifications.</p>
+                </div>
+              ) : (
+                notifications.map(notif => (
+                  <div key={notif.id} className="p-4 mb-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg border border-zinc-100 dark:border-zinc-800 flex flex-col gap-3">
+                    <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                      {notif.message}
+                    </p>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleAcceptInvite(notif.id, notif.board_id)} className="flex-1 bg-purple-600 text-white text-sm py-2 rounded-md hover:bg-purple-700 transition-colors">Accept</button>
+                      <button onClick={() => handleDeclineInvite(notif.id, notif.board_id)} className="flex-1 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm py-2 rounded-md hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors">Decline</button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
-            <div className="flex justify-end mt-4">
+
+            <div className="flex justify-end mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
               <button 
                 onClick={() => setIsNotificationsOpen(false)}
                 className="px-4 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg transition-colors font-medium text-sm"
@@ -330,7 +381,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* --- ADD FRIEND MODAL PLACEHOLDER --- */}
       {isAddFriendOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-xl p-6 border border-zinc-200 dark:border-zinc-800">
@@ -368,17 +418,15 @@ export default function Dashboard() {
           
           <UserMenu
             session={session}
-            notifications={[]} 
+            notifications={notifications} // 👇 NEW: Passes actual array
             onOpenNotifications={() => setIsNotificationsOpen(true)}
             onOpenAddFriend={() => setIsAddFriendOpen(true)}
             onSignOut={() => supabase.auth.signOut()}
           />
         </div>
 
-        {/* Boards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           
-          {/* Create New Board Card */}
           {isCreating ? (
             <form 
               onSubmit={handleCreateBoard}
@@ -418,7 +466,6 @@ export default function Dashboard() {
             </button>
           )}
 
-          {/* Existing Boards */}
           {boards.map((board) => (
             <div 
               key={board.id}
@@ -430,7 +477,6 @@ export default function Dashboard() {
               }`}
             >
               {editingBoardId === board.id ? (
-                // Edit Mode UI
                 <form 
                   onSubmit={(e) => handleRenameBoard(e, board.id)}
                   className="flex flex-col h-full gap-3"
@@ -460,14 +506,12 @@ export default function Dashboard() {
                   </div>
                 </form>
               ) : (
-                // Normal Display UI
                 <>
                   <div className="flex justify-between items-start mb-2 relative">
                     <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors pr-8 line-clamp-2">
                       {board.title}
                     </h2>
                     
-                    {/* Triple Dot Menu Button */}
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -484,10 +528,8 @@ export default function Dashboard() {
                       </svg>
                     </button>
 
-                    {/* Dropdown Menu */}
                     {activeMenuId === board.id && (
                       <>
-                        {/* Invisible overlay to close menu when clicking outside */}
                         <div 
                           className="fixed inset-0 z-40" 
                           onClick={(e) => {
@@ -496,7 +538,6 @@ export default function Dashboard() {
                           }}
                         />
                         
-                        {/* Menu Box */}
                         <div className="absolute right-0 top-8 w-32 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden flex flex-col">
                           <button
                             onClick={(e) => {
