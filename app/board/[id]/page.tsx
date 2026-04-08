@@ -26,6 +26,7 @@ import { AddColumnModal } from "@/components/board/AddColumnModal";
 import { CustomConfirmModal } from "@/components/ui/CustomConfirmModal";
 import { BoardFilters } from "@/components/board/BoardFilters";
 import { CalendarView } from "@/components/board/CalendarView";
+import { UserMenu } from "@/components/board/UserMenu"; // <-- Added Import
 
 // Custom Hook
 import { useBoardData } from "../../useBoardData";
@@ -328,7 +329,7 @@ export default function BoardPage() {
           toast.success("User removed");
           fetchAllData();
         }
-        setModalConfig({ ...modalConfig, isOpen: false }); // <-- FIXED TS ERROR HERE
+        setModalConfig({ ...modalConfig, isOpen: false }); 
       }
     });
   };
@@ -352,6 +353,36 @@ export default function BoardPage() {
         onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
         onConfirm={modalConfig.onConfirm}
       />
+
+      {/* NOTIFICATIONS MODAL (Replaces inline dropdown) */}
+      {isNotificationsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl w-full max-w-md p-6 border border-zinc-200 dark:border-zinc-800">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Notifications</h2>
+              <button onClick={() => setIsNotificationsOpen(false)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">✕</button>
+            </div>
+            
+            <div className="max-h-72 overflow-y-auto pr-2">
+              {notifications.length === 0 ? (
+                <div className="py-8 text-sm text-center text-zinc-500">No new notifications</div>
+              ) : (
+                notifications.map(notif => (
+                  <div key={notif.recordId} className="p-4 mb-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg border border-zinc-100 dark:border-zinc-800 flex flex-col gap-3">
+                    <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                      <strong className="text-zinc-900 dark:text-white">{notif.email}</strong> wants to be your friend.
+                    </span>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleAcceptFriend(notif.recordId)} className="flex-1 bg-purple-600 text-white text-sm py-2 rounded-md hover:bg-purple-700 transition-colors">Accept</button>
+                      <button onClick={() => handleDeclineFriend(notif.recordId)} className="flex-1 bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm py-2 rounded-md hover:bg-zinc-300 dark:hover:bg-zinc-600 transition-colors">Decline</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ADD FRIEND MODAL */}
       {isAddFriendModalOpen && (
@@ -455,60 +486,21 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* Top Navigation Bar with New Buttons */}
+      {/* CLEAN TOP NAVIGATION BAR */}
       <div className="w-full flex justify-between items-center mb-6 max-w-[1600px]">
         <button onClick={() => router.push("/")} className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-lg text-zinc-600 hover:text-purple-600 shadow-sm transition-all flex items-center gap-2">
           🔙 Back to Workspaces
         </button>
 
         <div className="flex items-center gap-3">
-          {/* Notifications Dropdown */}
-          <div className="relative">
-            <button 
-              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-              className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-2 rounded-lg text-zinc-600 hover:text-purple-600 shadow-sm transition-all relative"
-            >
-              🔔
-              {notifications.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                  {notifications.length}
-                </span>
-              )}
-            </button>
-            
-            {isNotificationsOpen && (
-              <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl z-40 overflow-hidden">
-                <div className="p-3 border-b border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-sm font-bold">Notifications</h3>
-                </div>
-                <div className="max-h-64 overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="p-4 text-sm text-center text-zinc-500">No new notifications</div>
-                  ) : (
-                    notifications.map(notif => (
-                      <div key={notif.recordId} className="p-3 border-b border-zinc-100 dark:border-zinc-800 flex flex-col gap-2">
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                          <strong className="text-zinc-900 dark:text-white">{notif.email}</strong> wants to be your friend.
-                        </span>
-                        <div className="flex gap-2">
-                          <button onClick={() => handleAcceptFriend(notif.recordId)} className="flex-1 bg-purple-600 text-white text-xs py-1.5 rounded-md hover:bg-purple-700">Accept</button>
-                          <button onClick={() => handleDeclineFriend(notif.recordId)} className="flex-1 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs py-1.5 rounded-md hover:bg-zinc-300">Decline</button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <button onClick={() => setIsAddFriendModalOpen(true)} className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-lg text-zinc-600 hover:text-purple-600 shadow-sm transition-all flex items-center gap-2">
-            👥 Add Friend
-          </button>
-
-          <button onClick={() => setIsShareModalOpen(true)} className="text-sm font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 border border-purple-200 px-4 py-2 rounded-lg hover:bg-purple-200 transition-colors flex items-center gap-2 shadow-sm">
-            🤝 Share
-          </button>
+          <UserMenu 
+            session={session}
+            notifications={notifications}
+            onOpenNotifications={() => setIsNotificationsOpen(true)}
+            onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
+            onOpenShare={() => setIsShareModalOpen(true)}
+            onSignOut={handleSignOut}
+          />
         </div>
       </div>
 

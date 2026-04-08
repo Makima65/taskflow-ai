@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { toast, Toaster } from "sonner";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { CustomConfirmModal } from "@/components/ui/CustomConfirmModal";
+import { UserMenu } from "@/components/board/UserMenu";
 
 interface Board {
   id: string;
@@ -28,6 +29,10 @@ export default function Dashboard() {
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  
+  // Modal States
+  const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
@@ -173,13 +178,70 @@ export default function Dashboard() {
         onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
         onConfirm={modalConfig.onConfirm}
       />
+
+      {/* --- NOTIFICATIONS MODAL PLACEHOLDER --- */}
+      {isNotificationsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-xl p-6 border border-zinc-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-4">Notifications</h2>
+            <div className="py-8 text-center text-zinc-500 dark:text-zinc-400">
+              <p>No new notifications.</p>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button 
+                onClick={() => setIsNotificationsOpen(false)}
+                className="px-4 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg transition-colors font-medium text-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- ADD FRIEND MODAL PLACEHOLDER --- */}
+      {isAddFriendOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-2xl shadow-xl p-6 border border-zinc-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Add Friend</h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">Enter your friend's email address to send them a request.</p>
+            <input 
+              type="email" 
+              placeholder="friend@example.com" 
+              className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-zinc-900 dark:text-zinc-100 outline-none focus:border-purple-500 mb-6"
+            />
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setIsAddFriendOpen(false)}
+                className="px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded-lg transition-colors font-medium text-sm"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  toast.success("Friend request sent!");
+                  setIsAddFriendOpen(false);
+                }}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors font-medium text-sm"
+              >
+                Send Request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="w-full max-w-5xl">
         <div className="flex justify-between items-center mb-10">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">My Workspaces</h1>
-          <button onClick={() => supabase.auth.signOut()} className="text-sm font-medium bg-zinc-200 dark:bg-zinc-800 px-4 py-2 rounded-lg text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors">
-            Sign Out
-          </button>
+          
+          <UserMenu
+            session={session}
+            notifications={[]} 
+            onOpenNotifications={() => setIsNotificationsOpen(true)} // Wired up!
+            onOpenAddFriend={() => setIsAddFriendOpen(true)}         // Wired up!
+            onSignOut={() => supabase.auth.signOut()}
+          />
         </div>
 
         {/* Boards Grid */}

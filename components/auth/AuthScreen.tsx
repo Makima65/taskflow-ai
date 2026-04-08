@@ -24,6 +24,42 @@ export function AuthScreen() {
         if (result.error) throw result.error;
         return isSignUp ? "Check your email to confirm your account!" : "Welcome back!";
       },
+      error: (err) => {
+        const errorMsg = err.message.toLowerCase();
+        
+        // Custom error for signing up with an existing account
+        if (isSignUp && errorMsg.includes("already registered")) {
+          return "This email already has an account. Please log in!";
+        }
+        
+        // Custom error for signing in with no account / wrong password
+        // (Note: Supabase groups "wrong password" and "no account" into "Invalid login credentials" for security)
+        if (!isSignUp && errorMsg.includes("invalid login")) {
+          return "No account found or incorrect password. Please sign up or try again!";
+        }
+        
+        return err.message;
+      },
+    });
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      toast.error("Please enter your email address first so we know where to send the reset link.");
+      return;
+    }
+
+    const resetPromise = supabase.auth.resetPasswordForEmail(email, {
+      // This will redirect them back to your site after they click the email link
+      redirectTo: `${window.location.origin}/`, 
+    });
+
+    toast.promise(resetPromise, {
+      loading: 'Sending reset link...',
+      success: (result) => {
+        if (result.error) throw result.error;
+        return "Password reset link sent! Check your email inbox.";
+      },
       error: (err) => err.message,
     });
   };
@@ -42,7 +78,11 @@ export function AuthScreen() {
             <FloatingInput label="Password" type="password" value={password} onChange={(e: any) => setPassword(e.target.value)} />
             {!isSignUp && (
               <p className="underline m-0 text-right text-[#747474] decoration-[#747474]">
-                <span onClick={() => toast.info("Password reset coming soon!")} className="cursor-pointer font-sans text-[11px] font-bold hover:text-black dark:hover:text-white transition-colors">
+                {/* Changed the onClick to trigger our new function */}
+                <span 
+                  onClick={handleForgotPassword} 
+                  className="cursor-pointer font-sans text-[11px] font-bold hover:text-black dark:hover:text-white transition-colors"
+                >
                   Forgot Password?
                 </span>
               </p>

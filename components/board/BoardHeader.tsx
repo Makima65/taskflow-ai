@@ -118,9 +118,7 @@ export function BoardHeader({
         </Dialog>
         
         {/* SIGN OUT */}
-        <Button variant="ghost" className="rounded-[20px] hover:text-purple-600 dark:hover:text-purple-400" onClick={onSignOut}>
-          Sign Out
-        </Button>
+    
       </div>
     </div>
   );
