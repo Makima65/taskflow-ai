@@ -1,6 +1,5 @@
 "use client";
 
-
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Session } from "@supabase/supabase-js";
@@ -9,7 +8,7 @@ import { toast, Toaster } from "sonner";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { CustomConfirmModal } from "@/components/ui/CustomConfirmModal";
 import { UserMenu } from "@/components/board/UserMenu";
-import { AddFriendModal } from "@/components/modals/AddFriendModal"; // 👈 Imported your new component here!
+import { AddFriendModal } from "@/components/modals/AddFriendModal";
 import { NotificationsModal } from "@/components/modals/NotificationsModal";
 import { WorkspaceCard } from "@/components/board/WorkspaceCard";
 import { CreateWorkspaceCard } from "@/components/board/CreateWorkspaceCard";
@@ -110,7 +109,6 @@ export default function Dashboard() {
       .from("notifications")
       .select("*")
       .eq("user_id", userId)
-      // ❌ I DELETED THE .EQ("TYPE") LINE HERE!
       .order("created_at", { ascending: false });
     
     if (!error && data) {
@@ -194,6 +192,32 @@ export default function Dashboard() {
     toast.info("Workspace invite declined.");
   };
 
+  const handleAcceptFriend = async (notifId: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+
+    const { error } = await supabase.from("notifications").delete().eq("id", notifId);
+    
+    if (error) {
+      toast.error("Failed to accept: " + error.message);
+      return;
+    }
+
+    toast.success("Friend request accepted!");
+  };
+
+  const handleDeclineFriend = async (notifId: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    
+    const { error } = await supabase.from("notifications").delete().eq("id", notifId);
+    
+    if (error) {
+      toast.error("Failed to decline: " + error.message);
+      return;
+    }
+    
+    toast.info("Friend request declined.");
+  };
+
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBoardTitle.trim() || !session) return;
@@ -266,7 +290,7 @@ export default function Dashboard() {
     );
   }
 
- if (!session) {
+  if (!session) {
     return (
       <>
         <Toaster richColors position="bottom-right" />
@@ -287,18 +311,28 @@ export default function Dashboard() {
     );
   }
 
-return (
+  return (
     <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-8 md:p-12 flex flex-col items-center">
       <Toaster richColors position="bottom-right" />
 
-<NotificationsModal 
-  isOpen={isNotificationsOpen}
-  onClose={() => setIsNotificationsOpen(false)}
-  notifications={notifications}
-  onAccept={handleAcceptInvite}
-  onDecline={handleDeclineInvite}
-/>
-      {/* 👇 Our newly imported Add Friend Modal component! */}
+      <CustomConfirmModal 
+        isOpen={modalConfig.isOpen}
+        title={modalConfig.title}
+        description={modalConfig.description}
+        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        onConfirm={modalConfig.onConfirm}
+      />
+
+      <NotificationsModal 
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        notifications={notifications}
+        onAccept={handleAcceptInvite}
+        onDecline={handleDeclineInvite}
+        onAcceptFriend={handleAcceptFriend}
+        onDeclineFriend={handleDeclineFriend}
+      />
+      
       <AddFriendModal 
         isOpen={isAddFriendOpen}
         onClose={() => setIsAddFriendOpen(false)}
@@ -319,14 +353,13 @@ return (
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <CreateWorkspaceCard 
-  isCreating={isCreating}
-  setIsCreating={setIsCreating}
-  newBoardTitle={newBoardTitle}
-  setNewBoardTitle={setNewBoardTitle}
-  onSubmit={handleCreateBoard}
-/>
+            isCreating={isCreating}
+            setIsCreating={setIsCreating}
+            newBoardTitle={newBoardTitle}
+            setNewBoardTitle={setNewBoardTitle}
+            onSubmit={handleCreateBoard}
+          />
 
-      {/* ... your WorkspaceCard map ... */}
           {boards.map((board) => (
             <WorkspaceCard
               key={board.id}
@@ -348,8 +381,8 @@ return (
               }}
             />
           ))}
-        </div> {/* Closes the grid */}
-      </div> {/* Closes the max-w-5xl container */}
+        </div>
+      </div>
     </main> 
   );
 }

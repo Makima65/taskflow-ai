@@ -60,7 +60,7 @@ export function NotificationsModal({
                     <>
                       <button 
                         onClick={() => onAcceptFriend && onAcceptFriend(notif.id)} 
-                        className="flex-1 bg-blue-600 text-white text-sm py-2 rounded-md hover:bg-blue-700 transition-colors"
+                        className="flex-1 bg-purple-600 text-white text-sm py-2 rounded-md hover:bg-purple-700 transition-colors"
                       >
                         Accept Friend
                       </button>
