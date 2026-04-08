@@ -146,7 +146,9 @@ export default function Dashboard() {
 
   // 👇 UPDATED: Added .select() and 0-rows check to catch silent failures
   const handleAcceptInvite = async (notifId: string, boardId: string) => {
+    
     if (!session) return;
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
     
     const { data, error: updateError } = await supabase
       .from("board_members")
@@ -185,6 +187,7 @@ export default function Dashboard() {
 
   const handleDeclineInvite = async (notifId: string, boardId: string) => {
     if (!session) return;
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
 
     const { error } = await supabase
       .from("board_members")
