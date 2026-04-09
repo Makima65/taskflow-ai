@@ -30,15 +30,14 @@ export default function MessagesPage() {
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // New States for Menu and Modal
+  // States for Menu and Modal
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [unfriendModal, setUnfriendModal] = useState({ isOpen: false, friendId: "" });
   
-  // 1. Add a Ref to the menu so we can detect clicks outside of it
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  // 2. Fixed Click-Outside logic using the Ref
+  // Click-Outside logic using the Ref
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -83,22 +82,33 @@ export default function MessagesPage() {
 
     fetchChatHistory();
 
+    // REALTIME WEBSOCKET FIX
     const channel = supabase
-      .channel("realtime-messages")
+      .channel(`chat_room_${session.user.id}_${selectedFriend.id}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
+          console.log("🔥 REALTIME PAYLOAD RECEIVED:", payload);
           const newMsg = payload.new as Message;
+          
           if (
             (newMsg.sender_id === session.user.id && newMsg.receiver_id === selectedFriend.id) ||
             (newMsg.sender_id === selectedFriend.id && newMsg.receiver_id === session.user.id)
           ) {
-            setMessages((prev) => [...prev, newMsg]);
+            setMessages((prev) => {
+              // Prevent duplicates if Optimistic UI already added it
+              if (prev.some(msg => msg.id === newMsg.id)) {
+                return prev;
+              }
+              return [...prev, newMsg];
+            });
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("📡 Realtime Status:", status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -138,27 +148,46 @@ export default function MessagesPage() {
     e?.preventDefault();
     if (!newMessage.trim() || !session || !selectedFriend) return;
 
-    const messageText = newMessage;
+    const messageText = newMessage.trim();
     setNewMessage(""); 
 
-    const { error } = await supabase.from("messages").insert({
+    // OPTIMISTIC UI: Add to screen instantly using a fake UUID
+    const tempId = crypto.randomUUID();
+    const tempMessage: Message = {
+      id: tempId,
       sender_id: session.user.id,
       receiver_id: selectedFriend.id,
-      content: messageText.trim(),
-    });
+      content: messageText,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempMessage]);
+
+    // Save to DB in the background
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({
+        sender_id: session.user.id,
+        receiver_id: selectedFriend.id,
+        content: messageText,
+      })
+      .select()
+      .single();
 
     if (error) {
       toast.error("Failed to send message");
+      // Remove fake message if it fails
+      setMessages((prev) => prev.filter(msg => msg.id !== tempId));
       setNewMessage(messageText); 
+    } else if (data) {
+      // Replace temp message with the official database row (real ID)
+      setMessages((prev) => prev.map(msg => msg.id === tempId ? data : msg));
     }
   };
 
-  // 3. Bulletproof RPC delete logic
   const executeUnfriend = async () => {
     const friendId = unfriendModal.friendId;
     if (!session || !friendId) return;
 
-    // Call our custom database function to bypass RLS and delete both rows
     const { error } = await supabase.rpc("remove_friendship", {
       user_a: session.user.id,
       user_b: friendId
@@ -171,7 +200,6 @@ export default function MessagesPage() {
 
     toast.success("Friend completely removed.");
     
-    // Clean up the UI
     setFriends((prev) => prev.filter((f) => f.id !== friendId));
     if (selectedFriend?.id === friendId) {
       setSelectedFriend(null);
@@ -192,7 +220,6 @@ export default function MessagesPage() {
     <main className="h-screen flex bg-zinc-50 dark:bg-zinc-950 overflow-hidden">
       <Toaster richColors position="bottom-right" />
       
-      {/* Custom Confirmation Modal */}
       <CustomConfirmModal 
         isOpen={unfriendModal.isOpen}
         title="Remove Friend"
@@ -272,7 +299,6 @@ export default function MessagesPage() {
                 {selectedFriend.email}
               </h2>
 
-              {/* 4. Wrapped menu in the ref to fix the click bug */}
               <div className="relative" ref={menuRef}>
                 <button 
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
