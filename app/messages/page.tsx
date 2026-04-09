@@ -5,13 +5,13 @@ import { supabase } from "@/lib/supabase";
 import { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { toast, Toaster } from "sonner";
+import { CustomConfirmModal } from "@/components/ui/CustomConfirmModal";
 
 interface FriendProfile {
   id: string;
   email: string;
 }
 
-// 1. Add the Message interface
 interface Message {
   id: string;
   sender_id: string;
@@ -26,14 +26,29 @@ export default function MessagesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedFriend, setSelectedFriend] = useState<FriendProfile | null>(null);
   
-  // 2. Add state for messages and the input field
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
+  // New States for Menu and Modal
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [unfriendModal, setUnfriendModal] = useState({ isOpen: false, friendId: "" });
+  
+  // 1. Add a Ref to the menu so we can detect clicks outside of it
+  const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  // Initial Auth & Friends Load
+  // 2. Fixed Click-Outside logic using the Ref
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
@@ -45,16 +60,13 @@ export default function MessagesPage() {
     });
   }, [router]);
 
-  // 3. Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 4. Fetch Chat History & Listen for Real-Time Messages
   useEffect(() => {
     if (!session || !selectedFriend) return;
 
-    // Fetch existing messages between the two users
     const fetchChatHistory = async () => {
       const { data, error } = await supabase
         .from("messages")
@@ -71,7 +83,6 @@ export default function MessagesPage() {
 
     fetchChatHistory();
 
-    // Subscribe to new messages instantly
     const channel = supabase
       .channel("realtime-messages")
       .on(
@@ -79,7 +90,6 @@ export default function MessagesPage() {
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
           const newMsg = payload.new as Message;
-          // Only add to state if the message belongs to this specific chat
           if (
             (newMsg.sender_id === session.user.id && newMsg.receiver_id === selectedFriend.id) ||
             (newMsg.sender_id === selectedFriend.id && newMsg.receiver_id === session.user.id)
@@ -118,17 +128,18 @@ export default function MessagesPage() {
       if (!profilesError && profilesData) {
         setFriends(profilesData);
       }
+    } else {
+      setFriends([]);
     }
     setIsLoading(false);
   };
 
-  // 5. Send Message Function
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!newMessage.trim() || !session || !selectedFriend) return;
 
     const messageText = newMessage;
-    setNewMessage(""); // Clear input immediately for snappy feel
+    setNewMessage(""); 
 
     const { error } = await supabase.from("messages").insert({
       sender_id: session.user.id,
@@ -138,8 +149,35 @@ export default function MessagesPage() {
 
     if (error) {
       toast.error("Failed to send message");
-      setNewMessage(messageText); // Restore text if failed
+      setNewMessage(messageText); 
     }
+  };
+
+  // 3. Bulletproof RPC delete logic
+  const executeUnfriend = async () => {
+    const friendId = unfriendModal.friendId;
+    if (!session || !friendId) return;
+
+    // Call our custom database function to bypass RLS and delete both rows
+    const { error } = await supabase.rpc("remove_friendship", {
+      user_a: session.user.id,
+      user_b: friendId
+    });
+
+    if (error) {
+      toast.error("Failed to remove friend: " + error.message);
+      return;
+    }
+
+    toast.success("Friend completely removed.");
+    
+    // Clean up the UI
+    setFriends((prev) => prev.filter((f) => f.id !== friendId));
+    if (selectedFriend?.id === friendId) {
+      setSelectedFriend(null);
+    }
+    
+    setUnfriendModal({ isOpen: false, friendId: "" });
   };
 
   if (isLoading) {
@@ -154,10 +192,17 @@ export default function MessagesPage() {
     <main className="h-screen flex bg-zinc-50 dark:bg-zinc-950 overflow-hidden">
       <Toaster richColors position="bottom-right" />
       
+      {/* Custom Confirmation Modal */}
+      <CustomConfirmModal 
+        isOpen={unfriendModal.isOpen}
+        title="Remove Friend"
+        description="Are you sure you want to remove this person from your friends list? You will no longer be able to message each other."
+        onClose={() => setUnfriendModal({ isOpen: false, friendId: "" })}
+        onConfirm={executeUnfriend}
+      />
+      
       {/* LEFT PANEL: Friends List */}
       <div className={`w-full md:w-80 lg:w-96 flex flex-col border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 ${selectedFriend ? 'hidden md:flex' : 'flex'}`}>
-        
-        {/* Header */}
         <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
           <button 
             onClick={() => router.push("/")}
@@ -168,7 +213,6 @@ export default function MessagesPage() {
           <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Messages</h1>
         </div>
 
-        {/* Friend List */}
         <div className="flex-1 overflow-y-auto p-3">
           {friends.length === 0 ? (
             <div className="text-center text-zinc-500 dark:text-zinc-400 mt-10 px-4 text-sm">
@@ -203,7 +247,6 @@ export default function MessagesPage() {
 
       {/* RIGHT PANEL: Active Chat */}
       <div className={`flex-1 flex flex-col ${!selectedFriend ? 'hidden md:flex' : 'flex'}`}>
-        
         {!selectedFriend ? (
           <div className="flex-1 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
             <p className="text-zinc-500 dark:text-zinc-400 font-medium">Select a friend to start chatting</p>
@@ -211,21 +254,47 @@ export default function MessagesPage() {
         ) : (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center gap-3 shadow-sm z-10">
+            <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center gap-3 shadow-sm z-10 relative">
               <button 
                 onClick={() => setSelectedFriend(null)}
                 className="md:hidden p-2 -ml-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               </button>
+              
               <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center flex-shrink-0">
                 <span className="text-purple-600 dark:text-purple-400 font-bold uppercase">
                   {selectedFriend.email.charAt(0)}
                 </span>
               </div>
-              <h2 className="font-bold text-zinc-900 dark:text-zinc-100 truncate">
+              
+              <h2 className="font-bold text-zinc-900 dark:text-zinc-100 truncate flex-1">
                 {selectedFriend.email}
               </h2>
+
+              {/* 4. Wrapped menu in the ref to fix the click bug */}
+              <div className="relative" ref={menuRef}>
+                <button 
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  className="p-2 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                </button>
+
+                {isMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg py-1 z-50">
+                    <button
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        setUnfriendModal({ isOpen: true, friendId: selectedFriend.id });
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium"
+                    >
+                      Unfriend
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Chat Messages Area */}
@@ -252,7 +321,6 @@ export default function MessagesPage() {
                   );
                 })
               )}
-              {/* Invisible div to scroll to */}
               <div ref={messagesEndRef} />
             </div>
 
