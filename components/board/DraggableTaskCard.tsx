@@ -171,7 +171,7 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                 <div className="flex justify-between items-center">
                   <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Description</label>
                   <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setIsPreviewMode(!isPreviewMode)}>
-                    {isPreviewMode ? "📝 Edit Markdown" : "👁️ Preview"}
+                    {isPreviewMode ? "Edit Markdown" : "Preview"}
                   </Button>
                 </div>
                 {isPreviewMode ? (

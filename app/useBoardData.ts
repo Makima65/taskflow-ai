@@ -127,7 +127,7 @@ export function useBoardData(session: Session | null, boardId: string): BoardDat
   const fetchTasks = async () => {
     if (!session?.user || !boardId) return;
 
-    // 👇 Removed the .eq("user_id", session.user.id) filter so you fetch everyone's tasks
+    //  Removed the .eq("user_id", session.user.id) filter so you fetch everyone's tasks
     const { data, error } = await supabase
       .from("tasks")
       .select('*, subtasks(*)')

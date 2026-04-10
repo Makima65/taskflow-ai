@@ -26,7 +26,8 @@ import { AddColumnModal } from "@/components/board/AddColumnModal";
 import { CustomConfirmModal } from "@/components/ui/CustomConfirmModal";
 import { BoardFilters } from "@/components/board/BoardFilters";
 import { CalendarView } from "@/components/board/CalendarView";
-import { UserMenu } from "@/components/board/UserMenu"; // <-- Added Import
+import { UserMenu } from "@/components/board/UserMenu"; 
+import { ShareModal } from "@/components/modals/ShareModal";
 
 // Custom Hook
 import { useBoardData } from "../../useBoardData";
@@ -38,9 +39,6 @@ export default function BoardPage() {
 
   // Share Modal & Workspace Members
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("editor");
-  const [isInviting, setIsInviting] = useState(false);
   const [boardMembers, setBoardMembers] = useState<any[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
 
@@ -56,6 +54,7 @@ export default function BoardPage() {
   const router = useRouter();
   const boardId = params.id as string;
 
+  
   // Handle Authentication State
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -257,103 +256,6 @@ export default function BoardPage() {
     }
   };
 
-
-  // ============================
-  // SHARE / WORKSPACE LOGIC
-  // ============================
-
-  const suggestedFriends = useMemo(() => {
-    if (!inviteEmail || inviteEmail.includes("@")) return [];
-    return friends.filter(f => f.email.toLowerCase().includes(inviteEmail.toLowerCase()));
-  }, [inviteEmail, friends]);
-
-  const handleInviteUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inviteEmail.trim()) return;
-
-    if (inviteEmail.toLowerCase() === session?.user?.email?.toLowerCase()) {
-      toast.error("You are already a member!");
-      return;
-    }
-
-    setIsInviting(true);
-    try {
-      // 1. Find the user
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("email", inviteEmail.toLowerCase().trim())
-        .single();
-
-      if (!profileData) {
-        toast.error("User not found!");
-        return;
-      }
-
-      // 2. Add them to the board as pending
-      const { error } = await supabase.from("board_members").insert({
-          board_id: boardId,
-          user_id: profileData.id,
-          role: inviteRole,
-          status: "pending"
-      });
-
-      if (error) throw error;
-
-      // 👇 3. NEW LOGIC: Fire the notification to the other user! 👇
-      // First, let's quickly grab the board title so the notification looks nice
-      const { data: boardData } = await supabase
-        .from("boards")
-        .select("title")
-        .eq("id", boardId)
-        .single();
-
-      // Now insert the alert into the notifications table
-      await supabase.from("notifications").insert([{
-        user_id: profileData.id,
-        sender_id: session?.user.id,
-        type: 'workspace_invite',
-        message: `${session?.user.email} invited you to join "${boardData?.title || 'a workspace'}"`,
-        board_id: boardId
-      }]);
-      // 👆 END NEW LOGIC 👆
-
-      toast.success(`Invite sent to ${inviteEmail}!`);
-      setInviteEmail("");
-      fetchAllData(); 
-    } catch (error) {
-      toast.error("User already in workspace or error occurred.");
-    } finally {
-      setIsInviting(false);
-    }
-  };
-
-  const handleUpdateMemberRole = async (userId: string, newRole: "editor" | "viewer") => {
-    setBoardMembers(prev => prev.map(m => m.user_id === userId ? { ...m, role: newRole } : m));
-    const { error } = await supabase.from("board_members").update({ role: newRole }).eq("board_id", boardId).eq("user_id", userId);
-    if (error) {
-      toast.error("Failed to update user role");
-      fetchAllData(); 
-    } else toast.success("Role updated!");
-  };
-
-  const handleRemoveMemberClick = (userId: string, email: string) => {
-    setModalConfig({
-      isOpen: true,
-      title: "Remove Member?",
-      description: `Are you sure you want to remove ${email} from this workspace?`,
-      onConfirm: async () => {
-        const { error } = await supabase.from("board_members").delete().eq("board_id", boardId).eq("user_id", userId);
-        if (error) toast.error("Failed to remove user");
-        else {
-          toast.success("User removed");
-          fetchAllData();
-        }
-        setModalConfig({ ...modalConfig, isOpen: false }); 
-      }
-    });
-  };
-
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
@@ -431,86 +333,37 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* SHARE MODAL */}
-      {isShareModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl w-full max-w-lg p-6 border border-zinc-200 dark:border-zinc-800">
-            <h2 className="text-xl font-bold mb-2">Share Workspace</h2>
-            
-            <form onSubmit={handleInviteUser} className="flex flex-col gap-4 mb-6">
-              <div className="flex gap-2 relative">
-                <div className="flex-1 relative">
-                  <input
-                    autoFocus
-                    type="email"
-                    placeholder="Search friends or type exact email..."
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-md px-3 py-2 text-sm outline-none focus:border-purple-500"
-                    required
-                  />
-                  {suggestedFriends.length > 0 && (
-                    <div className="absolute top-full left-0 w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md shadow-lg z-10 mt-1 overflow-hidden">
-                      {suggestedFriends.map(friend => (
-                        <button key={friend.id} type="button" onClick={() => setInviteEmail(friend.email)} className="w-full text-left px-4 py-2 text-sm hover:bg-purple-50 dark:hover:bg-purple-900/20 text-zinc-700 dark:text-zinc-300 transition-colors">
-                          {friend.email}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as "editor" | "viewer")} className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-md px-3 py-2 text-sm outline-none focus:border-purple-500">
-                  <option value="editor">Editor</option>
-                  <option value="viewer">Viewer</option>
-                </select>
-              </div>
-              
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setIsShareModalOpen(false)} className="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">Done</button>
-                <button type="submit" disabled={isInviting || !inviteEmail} className="px-4 py-2 text-sm text-white bg-purple-600 rounded-md">
-                  {isInviting ? "Sending..." : "Send Invite"}
-                </button>
-              </div>
-            </form>
+      <ShareModal 
+        isOpen={isShareModalOpen} 
+        onClose={() => setIsShareModalOpen(false)} 
+        board={{ id: boardId, title: "Workspace" }} 
+      />
 
-            <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4">
-              <h3 className="text-sm font-semibold mb-3">People with access</h3>
-              <div className="flex flex-col gap-3 max-h-48 overflow-y-auto pr-2">
-                {boardMembers.map((member, idx) => (
-                  <div key={idx} className="flex justify-between items-center group">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium">{member.email}</span>
-                      <span className={`text-xs ${member.status === 'pending' ? 'text-amber-500' : 'text-zinc-500'}`}>
-                        {member.status === 'pending' ? 'Invite Pending' : 'Joined'}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center gap-2">
-                      {member.user_id === session?.user?.id ? (
-                        <span className="text-sm text-zinc-500 italic mr-2">You</span>
-                      ) : (
-                        <>
-                          <select value={member.role} onChange={(e) => handleUpdateMemberRole(member.user_id, e.target.value as "editor" | "viewer")} className="bg-transparent text-sm text-zinc-600 dark:text-zinc-400 outline-none">
-                            <option value="editor">Editor</option>
-                            <option value="viewer">Viewer</option>
-                          </select>
-                          <button onClick={() => handleRemoveMemberClick(member.user_id, member.email)} className="text-zinc-400 hover:text-red-500 opacity-0 group-hover:opacity-100 p-1">✕</button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CLEAN TOP NAVIGATION BAR */}
-      <div className="w-full flex justify-between items-center mb-6 max-w-[1600px]">
-        <button onClick={() => router.push("/")} className="text-sm font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-lg text-zinc-600 hover:text-purple-600 shadow-sm transition-all flex items-center gap-2">
-          🔙 Back to Workspaces
-        </button>
+      <div className="w-full flex justify-between items-center mb-4 sm:mb-6 max-w-[1600px]">
+  <button 
+    onClick={() => router.push("/")} 
+    className="group text-xs sm:text-sm font-medium sm:font-semibold bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-zinc-600 dark:text-zinc-400 hover:text-purple-600 dark:hover:text-purple-400 shadow-sm transition-all flex items-center gap-1.5 sm:gap-2"
+  >
+    {/* Standard SVG Chevron Icon */}
+    <svg 
+      xmlns="http://www.w3.org/2000/svg" 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      className="w-4 h-4 transition-transform group-hover:-translate-x-1"
+    >
+      <path d="m15 18-6-6 6-6"/>
+    </svg>
+    
+    {/* Shows full text on desktop, short text on mobile */}
+    <span className="hidden sm:inline">Back to Workspaces</span>
+    <span className="inline sm:hidden">Back</span>
+  </button>
+  
+  
 
         <div className="flex items-center gap-3">
           <UserMenu 

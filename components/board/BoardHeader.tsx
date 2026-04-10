@@ -36,12 +36,12 @@ export function BoardHeader({
         <Dialog>
           <DialogTrigger asChild>
             <Button variant="ghost" className="rounded-[20px] text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
-              🗑️ Trash {trashedTasks.length > 0 && `(${trashedTasks.length})`}
+               Trash {trashedTasks.length > 0 && `(${trashedTasks.length})`}
             </Button>
           </DialogTrigger>
           <DialogContent className="w-[95vw] sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Trash Bin 🗑️</DialogTitle>
+              <DialogTitle>Trash Bin</DialogTitle>
               <DialogDescription>
                 Recover accidentally deleted tasks or permanently erase them.
               </DialogDescription>

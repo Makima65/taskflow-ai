@@ -13,6 +13,8 @@ import { NotificationsModal } from "@/components/modals/NotificationsModal";
 import { WorkspaceCard } from "@/components/board/WorkspaceCard";
 import { CreateWorkspaceCard } from "@/components/board/CreateWorkspaceCard";
 import { ResetPasswordModal } from "@/components/modals/ResetPasswordModal";
+// 👇 Added your ShareModal import here! 👇
+import { ShareModal } from "@/components/modals/ShareModal"; 
 
 interface Board {
   id: string;
@@ -38,6 +40,10 @@ export default function Dashboard() {
   // Modal States
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  
+  // Share Modal States (Added for onShareClick)
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [sharingBoard, setSharingBoard] = useState<Board | null>(null);
   
   // Notifications State
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -356,6 +362,15 @@ export default function Dashboard() {
         session={session}
       />
       
+      {/* 👇 Added the active modal logic here! 👇 */}
+      {isShareModalOpen && sharingBoard && (
+        <ShareModal 
+          board={sharingBoard}
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+        />
+      )}
+
       <div className="w-full max-w-5xl">
         <div className="flex justify-between items-center mb-10">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">My Workspaces</h1>
@@ -395,6 +410,11 @@ export default function Dashboard() {
               onDeleteClick={confirmDeleteBoard}
               onNavigate={() => {
                 if (editingBoardId !== board.id) router.push(`/board/${board.id}`);
+              }}
+              
+              onShareClick={(boardClicked) => {
+                setSharingBoard(boardClicked);
+                setIsShareModalOpen(true);
               }}
             />
           ))}

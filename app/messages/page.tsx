@@ -18,6 +18,7 @@ interface Message {
   receiver_id: string;
   content: string;
   created_at: string;
+  is_read?: boolean;
 }
 
 export default function MessagesPage() {
@@ -30,14 +31,15 @@ export default function MessagesPage() {
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // States for Menu and Modal
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const selectedFriendRef = useRef<string | null>(null);
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [unfriendModal, setUnfriendModal] = useState({ isOpen: false, friendId: "" });
   
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  // Click-Outside logic using the Ref
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -56,6 +58,42 @@ export default function MessagesPage() {
       }
       setSession(session);
       fetchFriends(session.user.id);
+      fetchUnreadCounts(session.user.id);
+
+      // Unique channel name with Date.now() to prevent React Strict Mode crashes
+      const notificationsChannel = supabase
+        .channel(`global-notifications-${session.user.id}-${Date.now()}`)
+        .on(
+          "postgres_changes",
+          { 
+            event: "INSERT", 
+            schema: "public", 
+            table: "messages",
+            filter: `receiver_id=eq.${session.user.id}` 
+          },
+          async (payload) => {
+            const newMsg = payload.new as Message;
+            if (selectedFriendRef.current !== newMsg.sender_id) {
+              setUnreadCounts((prev) => ({
+                ...prev,
+                [newMsg.sender_id]: (prev[newMsg.sender_id] || 0) + 1
+              }));
+            } else {
+              // If we are looking at them, instantly mark it as read in the database
+              const { error } = await supabase
+                .from("messages")
+                .update({ is_read: true })
+                .eq("id", newMsg.id);
+                
+              if (error) console.error("Failed to mark new message as read:", error);
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(notificationsChannel);
+      };
     });
   }, [router]);
 
@@ -82,38 +120,47 @@ export default function MessagesPage() {
 
     fetchChatHistory();
 
-    // REALTIME WEBSOCKET FIX
+    // Unique channel name with Date.now() to prevent React Strict Mode crashes
     const channel = supabase
-      .channel(`chat_room_${session.user.id}_${selectedFriend.id}`)
+      .channel(`chat_room_${session.user.id}_${selectedFriend.id}-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
-          console.log("🔥 REALTIME PAYLOAD RECEIVED:", payload);
           const newMsg = payload.new as Message;
-          
           if (
             (newMsg.sender_id === session.user.id && newMsg.receiver_id === selectedFriend.id) ||
             (newMsg.sender_id === selectedFriend.id && newMsg.receiver_id === session.user.id)
           ) {
             setMessages((prev) => {
-              // Prevent duplicates if Optimistic UI already added it
-              if (prev.some(msg => msg.id === newMsg.id)) {
-                return prev;
-              }
+              if (prev.some(msg => msg.id === newMsg.id)) return prev;
               return [...prev, newMsg];
             });
           }
         }
       )
-      .subscribe((status) => {
-        console.log("📡 Realtime Status:", status);
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, [session, selectedFriend]);
+
+  const fetchUnreadCounts = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("sender_id")
+      .eq("receiver_id", userId)
+      .eq("is_read", false);
+
+    if (!error && data) {
+      const counts: Record<string, number> = {};
+      data.forEach((msg) => {
+        counts[msg.sender_id] = (counts[msg.sender_id] || 0) + 1;
+      });
+      setUnreadCounts(counts);
+    }
+  };
 
   const fetchFriends = async (userId: string) => {
     const { data: friendsData, error: friendsError } = await supabase
@@ -129,7 +176,6 @@ export default function MessagesPage() {
 
     if (friendsData && friendsData.length > 0) {
       const friendIds = friendsData.map(f => f.friend_id);
-      
       const { data: profilesData, error: profilesError } = await supabase
         .from("profiles")
         .select("id, email")
@@ -144,6 +190,28 @@ export default function MessagesPage() {
     setIsLoading(false);
   };
 
+  const handleSelectFriend = async (friend: FriendProfile) => {
+    setSelectedFriend(friend);
+    selectedFriendRef.current = friend.id; 
+
+    // Clear the unread count locally
+    setUnreadCounts((prev) => ({ ...prev, [friend.id]: 0 }));
+
+    // Tell the database that all messages from this friend are now read
+    if (session) {
+      const { error } = await supabase
+        .from("messages")
+        .update({ is_read: true })
+        .eq("sender_id", friend.id)
+        .eq("receiver_id", session.user.id)
+        .eq("is_read", false);
+        
+      if (error) {
+        console.error("Database failed to mark messages as read:", error);
+      }
+    }
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!newMessage.trim() || !session || !selectedFriend) return;
@@ -151,7 +219,6 @@ export default function MessagesPage() {
     const messageText = newMessage.trim();
     setNewMessage(""); 
 
-    // OPTIMISTIC UI: Add to screen instantly using a fake UUID
     const tempId = crypto.randomUUID();
     const tempMessage: Message = {
       id: tempId,
@@ -159,10 +226,10 @@ export default function MessagesPage() {
       receiver_id: selectedFriend.id,
       content: messageText,
       created_at: new Date().toISOString(),
+      is_read: false,
     };
     setMessages((prev) => [...prev, tempMessage]);
 
-    // Save to DB in the background
     const { data, error } = await supabase
       .from("messages")
       .insert({
@@ -175,11 +242,9 @@ export default function MessagesPage() {
 
     if (error) {
       toast.error("Failed to send message");
-      // Remove fake message if it fails
       setMessages((prev) => prev.filter(msg => msg.id !== tempId));
       setNewMessage(messageText); 
     } else if (data) {
-      // Replace temp message with the official database row (real ID)
       setMessages((prev) => prev.map(msg => msg.id === tempId ? data : msg));
     }
   };
@@ -199,12 +264,11 @@ export default function MessagesPage() {
     }
 
     toast.success("Friend completely removed.");
-    
     setFriends((prev) => prev.filter((f) => f.id !== friendId));
     if (selectedFriend?.id === friendId) {
       setSelectedFriend(null);
+      selectedFriendRef.current = null;
     }
-    
     setUnfriendModal({ isOpen: false, friendId: "" });
   };
 
@@ -249,20 +313,32 @@ export default function MessagesPage() {
             friends.map((friend) => (
               <button
                 key={friend.id}
-                onClick={() => setSelectedFriend(friend)}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors text-left mb-1 ${
+                onClick={() => handleSelectFriend(friend)}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors text-left mb-1 relative ${
                   selectedFriend?.id === friend.id 
                     ? 'bg-purple-50 dark:bg-purple-900/20' 
                     : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/50'
                 }`}
               >
-                <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center flex-shrink-0">
+                <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center flex-shrink-0 relative">
                   <span className="text-purple-600 dark:text-purple-400 font-bold text-sm uppercase">
                     {friend.email.charAt(0)}
                   </span>
+                  
+                  {/* UNREAD RED DOT UI */}
+                  {(unreadCounts[friend.id] || 0) > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 border-2 border-white dark:border-zinc-900 text-[9px] font-bold text-white">
+                      {unreadCounts[friend.id] > 9 ? '9+' : unreadCounts[friend.id]}
+                    </span>
+                  )}
                 </div>
+                
                 <div className="flex-1 overflow-hidden">
-                  <p className="font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                  <p className={`truncate ${
+                    (unreadCounts[friend.id] || 0) > 0 
+                      ? 'font-bold text-zinc-900 dark:text-zinc-50' 
+                      : 'font-medium text-zinc-700 dark:text-zinc-300'
+                  }`}>
                     {friend.email}
                   </p>
                 </div>
@@ -283,7 +359,10 @@ export default function MessagesPage() {
             {/* Chat Header */}
             <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center gap-3 shadow-sm z-10 relative">
               <button 
-                onClick={() => setSelectedFriend(null)}
+                onClick={() => {
+                  setSelectedFriend(null);
+                  selectedFriendRef.current = null;
+                }}
                 className="md:hidden p-2 -ml-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>

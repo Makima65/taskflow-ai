@@ -3,13 +3,14 @@
 import { useState, useRef, useEffect } from "react";
 import { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase"; // <-- NEW: Added Supabase import!
 
 interface UserMenuProps {
   session: Session | null;
   notifications: any[];
   onOpenNotifications: () => void;
   onOpenAddFriend: () => void;
-  onOpenShare?: () => void; // <-- Add the question mark here!
+  onOpenShare?: () => void; 
   onSignOut: () => void;
 }
 
@@ -64,8 +65,9 @@ export function UserMenu({
   onSignOut,
 }: UserMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0); // <-- NEW: State for unread messages
   const menuRef = useRef<HTMLDivElement>(null);
-  const router = useRouter(); // <-- Initialize the Next.js router here!
+  const router = useRouter(); 
 
   // Close the menu if the user clicks outside of it
   useEffect(() => {
@@ -77,6 +79,46 @@ export function UserMenu({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // NEW: Global listener just for the unread message count
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    // Helper to fetch the total count of unread messages
+    const fetchUnreadCount = async () => {
+      const { count } = await supabase
+        .from("messages")
+        .select("*", { count: "exact", head: true })
+        .eq("receiver_id", session.user.id)
+        .eq("is_read", false);
+      
+      setUnreadMessages(count || 0);
+    };
+
+    // Fetch instantly on mount
+    fetchUnreadCount();
+
+    // Listen for ANY changes to messages sent to you (new inserts OR updates to is_read)
+    const channel = supabase
+      .channel(`menu-unread-counter-${session.user.id}-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        { 
+          event: "*", 
+          schema: "public", 
+          table: "messages",
+          filter: `receiver_id=eq.${session.user.id}` 
+        },
+        () => {
+          fetchUnreadCount(); // Re-sync the count if a message arrives or is marked read
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id]);
 
   const userEmail = session?.user?.email || "User";
   const initial = userEmail.charAt(0).toUpperCase();
@@ -94,7 +136,8 @@ export function UserMenu({
         <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 truncate max-w-[150px]">
           {userEmail}
         </span>
-        {notifications.length > 0 && (
+        {/* NEW: Pulse red dot if there are standard notifications OR unread messages */}
+        {(notifications.length > 0 || unreadMessages > 0) && (
           <div className="w-2.5 h-2.5 bg-red-500 rounded-full ml-1 animate-pulse shrink-0"></div>
         )}
       </button>
@@ -103,7 +146,7 @@ export function UserMenu({
       {isOpen && (
         <div className="absolute right-0 mt-2 w-[240px] bg-white dark:bg-zinc-950 rounded-xl p-2 flex flex-col shadow-xl dark:shadow-2xl z-50 border border-zinc-100 dark:border-zinc-800 overflow-hidden">
           
-          {/* Add Friend - Uses the Person+ icon you wanted */}
+          {/* Add Friend */}
           <MenuItem
             onClick={() => { onOpenAddFriend(); setIsOpen(false); }}
             label="Add Friend"
@@ -114,10 +157,16 @@ export function UserMenu({
             }
           />
 
-          {/* Messages - Brand New Button! */}
+          {/* Messages */}
           <MenuItem
             onClick={() => { router.push("/messages"); setIsOpen(false); }}
             label="Messages"
+            // NEW: Add the red badge if unread messages exist!
+            badge={unreadMessages > 0 && (
+              <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold ml-auto shrink-0">
+                {unreadMessages > 9 ? '9+' : unreadMessages}
+              </span>
+            )}
             icon={
               <svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
@@ -125,7 +174,7 @@ export function UserMenu({
             }
           />
 
-          {/* Share Board - Only shows if onOpenShare is provided */}
+          {/* Share Board */}
           {onOpenShare && (
             <MenuItem
               onClick={() => { onOpenShare(); setIsOpen(false); }}
@@ -138,7 +187,7 @@ export function UserMenu({
             />
           )}
 
-          {/* Notifications - Uses the Notification icon you wanted */}
+          {/* Notifications */}
           <MenuItem
             onClick={() => { onOpenNotifications(); setIsOpen(false); }}
             label="Notifications"
@@ -156,7 +205,7 @@ export function UserMenu({
 
           <div className="border-t border-zinc-100 dark:border-zinc-800 my-1.5" />
 
-          {/* Sign Out - Uses a sleek logout icon with theme support */}
+          {/* Sign Out */}
           <MenuItem
             onClick={() => { onSignOut(); setIsOpen(false); }}
             label="Sign Out"
