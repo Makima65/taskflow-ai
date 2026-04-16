@@ -399,7 +399,7 @@ export default function BoardPage() {
 
       {activeView === "board" ? (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="flex flex-col md:flex-row gap-6 md:gap-8 pb-8 w-full justify-center overflow-x-auto p-4 md:p-8">
+          <div className="flex flex-col md:flex-row gap-6 md:gap-8 pb-8 w-full justify-start overflow-x-auto p-4 md:p-8">
             <SortableContext items={columns.map(col => col.id)} strategy={horizontalListSortingStrategy}>
               {columns.map((col) => (
                 <div key={col.id} className="w-full md:w-80 shrink-0">
