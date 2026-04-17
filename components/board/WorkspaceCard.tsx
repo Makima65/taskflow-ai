@@ -5,6 +5,7 @@ interface Board {
   id: string;
   title: string;
   created_at: string;
+  user_id: string; // 👇 Added user_id to fix the TypeScript mismatch
 }
 
 interface WorkspaceCardProps {

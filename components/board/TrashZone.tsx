@@ -1,6 +1,9 @@
 // components/board/TrashZone.tsx
 import { useDroppable } from "@dnd-kit/core";
 
+// 👇 Added Lucide React Icon 👇
+import { Trash2 } from "lucide-react";
+
 export function TrashZone() {
   const { setNodeRef, isOver } = useDroppable({ id: "trash" });
   
@@ -13,7 +16,10 @@ export function TrashZone() {
           : "border-zinc-300 text-zinc-400 dark:border-zinc-800"
       }`}
     >
-      <span className="text-lg font-bold tracking-wide pointer-events-none">🗑️ Drop here to delete</span>
+      {/* 👇 Replaced Emoji with Icon and added flex/gap for alignment 👇 */}
+      <span className="flex items-center gap-2 text-lg font-bold tracking-wide pointer-events-none">
+        <Trash2 className="w-6 h-6" /> Drop here to delete
+      </span>
     </div>
   );
 }

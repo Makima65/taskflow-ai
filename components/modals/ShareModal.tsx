@@ -4,10 +4,16 @@ import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
+// 👇 Updated the board type to match the main Board interface
 interface ShareModalProps {
   isOpen: boolean;
   onClose: () => void;
-  board: { id: string; title: string };
+  board: { 
+    id: string; 
+    title: string;
+    created_at?: string;
+    user_id?: string;
+  };
 }
 
 export function ShareModal({ isOpen, onClose, board }: ShareModalProps) {

@@ -3,6 +3,9 @@ import { Task } from "@/app/types"; // Adjust path if needed
 import { Card } from "@/components/ui/card";
 import { getRelativeTime } from "@/lib/utils";
 
+// 👇 Added Lucide React Icons 👇
+import { ChevronLeft, ChevronRight, Clock } from "lucide-react";
+
 export function CalendarView({ tasks }: { tasks: Task[] }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
@@ -87,11 +90,12 @@ export function CalendarView({ tasks }: { tasks: Task[] }) {
             {monthNames[month]} {year}
           </h2>
           <div className="flex gap-2">
-            <button onClick={handlePrevMonth} className="p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
-              ◀ Prev
+            {/* 👇 Replaced Text Arrows with Icons 👇 */}
+            <button onClick={handlePrevMonth} className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors">
+              <ChevronLeft className="w-4 h-4" /> Prev
             </button>
-            <button onClick={handleNextMonth} className="p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
-              Next ▶
+            <button onClick={handleNextMonth} className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors">
+              Next <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -131,8 +135,9 @@ export function CalendarView({ tasks }: { tasks: Task[] }) {
                   }`}>
                     {task.priority?.toUpperCase() || "MEDIUM"}
                   </span>
-                  <span className="text-[10px] text-zinc-500 flex items-center">
-                    ⏰ {new Date(task.due_date!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {/* 👇 Replaced Emoji with Icon 👇 */}
+                  <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> {new Date(task.due_date!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
               </div>

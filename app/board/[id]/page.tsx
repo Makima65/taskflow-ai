@@ -333,11 +333,11 @@ export default function BoardPage() {
         </div>
       )}
 
-      <ShareModal 
-        isOpen={isShareModalOpen} 
-        onClose={() => setIsShareModalOpen(false)} 
-        board={{ id: boardId, title: "Workspace" }} 
-      />
+<ShareModal 
+  isOpen={isShareModalOpen} 
+  onClose={() => setIsShareModalOpen(false)} 
+  board={{ id: boardId as string, title: "Workspace" }} 
+/>
 
       <div className="w-full flex justify-between items-center mb-4 sm:mb-6 max-w-[1600px]">
   <button 

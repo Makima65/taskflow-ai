@@ -14,7 +14,7 @@ interface UserMenuProps {
   onSignOut: () => void;
 }
 
-// Reusable menu item - Now styled to match the dark theme request
+// Reusable menu item - Now supports Light and Dark mode!
 const MenuItem = ({
   onClick,
   icon,
@@ -28,28 +28,30 @@ const MenuItem = ({
   badge?: React.ReactNode;
   variant?: "default" | "danger" | "special";
 }) => {
-  // Base styles matching the target '.element' class
+  // Base styles
   const baseClasses =
     "flex items-center gap-[10px] py-[4px] px-[7px] rounded-[6px] cursor-pointer transition-all duration-300 ease-out text-sm font-semibold group outline-none active:scale-[0.99] w-full text-left";
 
-  // Color & Hover logic based on variant
+  // Color & Hover logic based on variant (Responsive to light/dark themes)
   let variantClasses = "";
+  let iconHoverClass = "group-hover:text-white"; 
   
   if (variant === "danger") {
     variantClasses =
-      "text-[#7e8590] hover:bg-[#8e2a2a] hover:text-white hover:translate-x-[1px] hover:-translate-y-[1px]";
+      "text-zinc-600 dark:text-[#7e8590] hover:bg-red-500 dark:hover:bg-[#8e2a2a] hover:text-white hover:translate-x-[1px] hover:-translate-y-[1px]";
   } else if (variant === "special") {
+    // Special gets a light purple hover in light mode, and dark transparent in dark mode
     variantClasses =
-      "text-[#bd89ff] hover:bg-[rgba(56,45,71,0.836)]"; // Special item doesn't pop up on hover in the original CSS
+      "text-purple-600 dark:text-[#bd89ff] hover:bg-purple-100 dark:hover:bg-[rgba(56,45,71,0.836)] hover:text-purple-700 dark:hover:text-[#bd89ff]";
+    iconHoverClass = "group-hover:text-purple-700 dark:group-hover:text-[#bd89ff]"; // Keep icon visible on light background
   } else {
     variantClasses =
-      "text-[#7e8590] hover:bg-[#5353ff] hover:text-white hover:translate-x-[1px] hover:-translate-y-[1px]";
+      "text-zinc-600 dark:text-[#7e8590] hover:bg-[#5353ff] hover:text-white hover:translate-x-[1px] hover:-translate-y-[1px]";
   }
 
   return (
     <button onClick={onClick} className={`${baseClasses} ${variantClasses}`}>
-      {/* Icon wrapper styling */}
-      <div className="w-[19px] h-[19px] flex items-center justify-center shrink-0 [&>svg]:w-full [&>svg]:h-full [&>svg]:transition-all [&>svg]:duration-300 group-hover:text-white">
+      <div className={`w-[19px] h-[19px] flex items-center justify-center shrink-0 [&>svg]:w-full [&>svg]:h-full [&>svg]:transition-all [&>svg]:duration-300 ${iconHoverClass}`}>
         {icon}
       </div>
 
@@ -123,9 +125,9 @@ export function UserMenu({
   const userEmail = session?.user?.email || "User";
   const initial = userEmail.charAt(0).toUpperCase();
 
- return (
+  return (
     <div className="relative" ref={menuRef}>
-      {/* Avatar Toggle Button - Updated to your purple theme */}
+      {/* Avatar Toggle Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 p-1 pr-4 bg-white dark:bg-[#242832] border border-zinc-200 dark:border-[#42434a] rounded-full hover:border-[#bd89ff] dark:hover:border-[#bd89ff] transition-all shadow-sm focus:outline-none"
@@ -141,9 +143,9 @@ export function UserMenu({
         )}
       </button>
 
-      {/* Dropdown Menu - Now matches the requested Card theme */}
+      {/* Dropdown Menu - Added light mode backgrounds and borders */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-[200px] bg-[#242832] bg-gradient-to-br from-[#242832] via-[#242832] to-[#251c28] rounded-[10px] py-[15px] flex flex-col gap-[10px] shadow-2xl z-50 overflow-hidden">
+        <div className="absolute right-0 mt-2 w-[200px] bg-white border border-zinc-100 dark:border-none dark:bg-[#242832] dark:bg-gradient-to-br dark:from-[#242832] dark:via-[#242832] dark:to-[#251c28] rounded-[10px] py-[15px] flex flex-col gap-[10px] shadow-2xl z-50 overflow-hidden">
           
           {/* First Block */}
           <div className="flex flex-col gap-[8px] px-[10px]">
@@ -173,7 +175,7 @@ export function UserMenu({
             />
           </div>
 
-          <div className="border-t-[1.5px] border-[#42434a] w-full" />
+          <div className="border-t-[1.5px] border-zinc-100 dark:border-[#42434a] w-full" />
 
           {/* Second Block */}
           <div className="flex flex-col gap-[8px] px-[10px]">
@@ -204,10 +206,10 @@ export function UserMenu({
             />
           </div>
 
-          {/* Third Block (Only shows if Share Board prop exists) - Modeled after 'Team Access' */}
+          {/* Third Block (Only shows if Share Board prop exists) */}
           {onOpenShare && (
             <>
-              <div className="border-t-[1.5px] border-[#42434a] w-full" />
+              <div className="border-t-[1.5px] border-zinc-100 dark:border-[#42434a] w-full" />
               <div className="flex flex-col gap-[8px] px-[10px]">
                 <MenuItem
                   onClick={() => { onOpenShare(); setIsOpen(false); }}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
@@ -13,13 +13,16 @@ import { NotificationsModal } from "@/components/modals/NotificationsModal";
 import { WorkspaceCard } from "@/components/board/WorkspaceCard";
 import { CreateWorkspaceCard } from "@/components/board/CreateWorkspaceCard";
 import { ResetPasswordModal } from "@/components/modals/ResetPasswordModal";
-// 👇 Added your ShareModal import here! 👇
 import { ShareModal } from "@/components/modals/ShareModal"; 
+
+// 👇 Added lucide icons for the new controls 👇
+import { Search, Filter, ArrowUpDown } from "lucide-react";
 
 interface Board {
   id: string;
   title: string;
   created_at: string;
+  user_id: string; // 👇 Added user_id to determine ownership
 }
 
 export default function Dashboard() {
@@ -27,6 +30,11 @@ export default function Dashboard() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
+  // Dashboard Controls State 👇
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<"all" | "owned" | "shared">("all");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "az" | "za">("newest");
+
   // Create Board State
   const [isCreating, setIsCreating] = useState(false);
   const [newBoardTitle, setNewBoardTitle] = useState("");
@@ -41,7 +49,7 @@ export default function Dashboard() {
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   
-  // Share Modal States (Added for onShareClick)
+  // Share Modal States
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [sharingBoard, setSharingBoard] = useState<Board | null>(null);
   
@@ -146,12 +154,32 @@ export default function Dashboard() {
 
     const allBoards = [...(ownedBoards || []), ...sharedBoards];
     const uniqueBoards = Array.from(new Map(allBoards.map(b => [b.id, b])).values());
-    uniqueBoards.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
+    
+    // We remove the hardcoded sort here so our useMemo can handle it dynamically!
     setBoards(uniqueBoards);
     setIsLoading(false);
   };
 
+  // 👇 Dynamic Filtering & Sorting Logic 👇
+  const processedBoards = useMemo(() => {
+    return boards
+      .filter(board => board.title.toLowerCase().includes(searchQuery.toLowerCase()))
+      .filter(board => {
+        if (filterType === "all") return true;
+        if (filterType === "owned") return board.user_id === session?.user.id;
+        if (filterType === "shared") return board.user_id !== session?.user.id;
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === "newest") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        if (sortBy === "oldest") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (sortBy === "az") return a.title.localeCompare(b.title);
+        if (sortBy === "za") return b.title.localeCompare(a.title);
+        return 0;
+      });
+  }, [boards, searchQuery, filterType, sortBy, session?.user.id]);
+
+  // ... (Keep handleAcceptInvite, handleDeclineInvite, handleAcceptFriend, handleDeclineFriend, handleCreateBoard, handleRenameBoard, confirmDeleteBoard, executeDeleteBoard exactly the same as before)
   const handleAcceptInvite = async (notifId: string, boardId: string) => {
     if (!session) return;
     setNotifications((prev) => prev.filter((n) => n.id !== notifId));
@@ -201,17 +229,14 @@ export default function Dashboard() {
   const handleAcceptFriend = async (notifId: string) => {
     if (!session) return;
 
-    // 1. Find the specific notification to get the sender_id
     const notification = notifications.find(n => n.id === notifId);
     if (!notification || !notification.sender_id) {
       toast.error("Error: Could not find the sender's information.");
       return;
     }
 
-    // 2. Remove it from the screen immediately
     setNotifications((prev) => prev.filter((n) => n.id !== notifId));
 
-    // 3. Save the friendship to the database (both ways!)
     const { error: friendError } = await supabase.from("friends").insert([
       { user_id: session.user.id, friend_id: notification.sender_id },
       { user_id: notification.sender_id, friend_id: session.user.id }
@@ -222,22 +247,18 @@ export default function Dashboard() {
       return;
     }
 
-    // 4. Delete the notification
     await supabase.from("notifications").delete().eq("id", notifId);
-    
     toast.success("Friend request accepted! You are now friends.");
   };
 
   const handleDeclineFriend = async (notifId: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== notifId));
-    
     const { error } = await supabase.from("notifications").delete().eq("id", notifId);
     
     if (error) {
       toast.error("Failed to decline: " + error.message);
       return;
     }
-    
     toast.info("Friend request declined.");
   };
 
@@ -317,7 +338,6 @@ export default function Dashboard() {
     return (
       <>
         <Toaster richColors position="bottom-right" />
-        
         <ResetPasswordModal 
           isOpen={isResetPasswordOpen}
           newPassword={newPassword}
@@ -328,7 +348,6 @@ export default function Dashboard() {
             router.replace("/");
           }}
         />
-        
         <AuthScreen />
       </>
     );
@@ -362,7 +381,6 @@ export default function Dashboard() {
         session={session}
       />
       
-      {/* 👇 Added the active modal logic here! 👇 */}
       {isShareModalOpen && sharingBoard && (
         <ShareModal 
           board={sharingBoard}
@@ -372,7 +390,7 @@ export default function Dashboard() {
       )}
 
       <div className="w-full max-w-5xl">
-        <div className="flex justify-between items-center mb-10">
+        <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">My Workspaces</h1>
           <UserMenu
             session={session}
@@ -383,16 +401,63 @@ export default function Dashboard() {
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <CreateWorkspaceCard 
-            isCreating={isCreating}
-            setIsCreating={setIsCreating}
-            newBoardTitle={newBoardTitle}
-            setNewBoardTitle={setNewBoardTitle}
-            onSubmit={handleCreateBoard}
-          />
+        {/* 👇 Added Control Bar (Search, Filter, Sort) 👇 */}
+        <div className="flex flex-col sm:flex-row gap-4 mb-8 bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <input 
+              type="text" 
+              placeholder="Search workspaces..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
+            />
+          </div>
+          
+          <div className="flex gap-3">
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <select 
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value as any)}
+                className="pl-9 pr-8 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 appearance-none cursor-pointer"
+              >
+                <option value="all">All Boards</option>
+                <option value="owned">Owned by Me</option>
+                <option value="shared">Shared with Me</option>
+              </select>
+            </div>
 
-          {boards.map((board) => (
+            <div className="relative">
+              <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <select 
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="pl-9 pr-8 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 appearance-none cursor-pointer"
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="az">A to Z</option>
+                <option value="za">Z to A</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Only show the Create Card if we aren't heavily filtering or searching */}
+          {searchQuery === "" && filterType !== "shared" && (
+            <CreateWorkspaceCard 
+              isCreating={isCreating}
+              setIsCreating={setIsCreating}
+              newBoardTitle={newBoardTitle}
+              setNewBoardTitle={setNewBoardTitle}
+              onSubmit={handleCreateBoard}
+            />
+          )}
+
+          {/* 👇 Render processedBoards instead of raw boards 👇 */}
+          {processedBoards.map((board) => (
             <WorkspaceCard
               key={board.id}
               board={board}
@@ -411,13 +476,18 @@ export default function Dashboard() {
               onNavigate={() => {
                 if (editingBoardId !== board.id) router.push(`/board/${board.id}`);
               }}
-              
               onShareClick={(boardClicked) => {
                 setSharingBoard(boardClicked);
                 setIsShareModalOpen(true);
               }}
             />
           ))}
+          
+          {processedBoards.length === 0 && (
+            <div className="col-span-full py-12 text-center border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl">
+              <p className="text-zinc-500 dark:text-zinc-400">No workspaces match your filters.</p>
+            </div>
+          )}
         </div>
       </div>
     </main> 

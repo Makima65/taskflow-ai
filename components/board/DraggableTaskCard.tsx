@@ -12,6 +12,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Subtask } from "@/app/types";
 
+// 👇 Added Lucide React Icons 👇
+import { Pencil, X, Check, Trash2, Calendar, AlertTriangle, CheckSquare } from "lucide-react";
+
 export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUpdateSubtasks, columnTitle }: any) {
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<"edit" | "history">("edit");
@@ -19,7 +22,6 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
   const [isPreviewMode, setIsPreviewMode] = useState(true);
   const [newSubtask, setNewSubtask] = useState("");
   
-  // 👇 Added state for editing existing subtasks 👇
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
   const [editingSubtaskTitle, setEditingSubtaskTitle] = useState("");
   
@@ -64,7 +66,6 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
     onUpdateSubtasks();
   };
 
-  // 👇 Added function to handle saving an edited subtask 👇
   const saveSubtaskEdit = async (id: string) => {
     if (!editingSubtaskTitle.trim()) return;
     await supabase.from("subtasks").update({ title: editingSubtaskTitle }).eq("id", id);
@@ -128,12 +129,15 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                     ? "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-800" 
                     : "bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
                 }`}>
-                  {isOverdue ? "⚠️" : "🗓"} {renderDueDate(task.due_date)}
+                  {/* 👇 Replaced Emojis with Icons 👇 */}
+                  {isOverdue ? <AlertTriangle className="w-3 h-3" /> : <Calendar className="w-3 h-3" />} 
+                  {renderDueDate(task.due_date)}
                 </span>
               )}
               {totalSubtasks > 0 && (
-                <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800">
-                  ☑ {completedSubtasks}/{totalSubtasks}
+                <span className="text-[10px] flex items-center gap-1 font-bold px-2 py-1 rounded-md bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800">
+                  {/* 👇 Replaced Emoji with Icon 👇 */}
+                  <CheckSquare className="w-3 h-3" /> {completedSubtasks}/{totalSubtasks}
                 </span>
               )}
             </div>
@@ -145,7 +149,6 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
             </p>
           </div>
 
-          {/* Card-level Edit/Delete buttons visible on mobile, hover on desktop */}
           <div className="absolute top-3 right-3 flex gap-2 opacity-100 lg:opacity-0 transition-opacity lg:group-hover/card:opacity-100 z-20">
             <FancyEditButton onClick={() => setIsEditing(true)} />
             <FancyDeleteButton onClick={() => onRequestDelete(task.id)} />
@@ -189,7 +192,6 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                   {task.subtasks?.map((subtask: any) => (
                     <div key={subtask.id} className="flex items-center justify-between group/sub w-full min-h-[32px]">
                       
-                      {/* 👇 Inline Editing UI 👇 */}
                       {editingSubtaskId === subtask.id ? (
                         <div className="flex w-full gap-2 items-center">
                           <input 
@@ -202,8 +204,13 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                             }}
                             className="flex-1 rounded-md border border-zinc-300 bg-transparent p-1 px-2 outline-none focus:border-purple-500 dark:border-zinc-700 dark:text-white text-sm"
                           />
-                          <button onClick={() => saveSubtaskEdit(subtask.id)} className="text-green-600 hover:bg-green-50 p-1.5 rounded-md dark:hover:bg-green-900/20 text-xs">✓</button>
-                          <button onClick={() => setEditingSubtaskId(null)} className="text-zinc-500 hover:bg-zinc-100 p-1.5 rounded-md dark:hover:bg-zinc-800 text-xs">✕</button>
+                          {/* 👇 Replaced Emojis with Icons 👇 */}
+                          <button onClick={() => saveSubtaskEdit(subtask.id)} className="text-green-600 hover:bg-green-50 p-1.5 rounded-md dark:hover:bg-green-900/20">
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setEditingSubtaskId(null)} className="text-zinc-500 hover:bg-zinc-100 p-1.5 rounded-md dark:hover:bg-zinc-800">
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
                       ) : (
                         <>
@@ -216,24 +223,24 @@ export function DraggableTaskCard({ task, session, onRequestDelete, onEdit, onUp
                             />
                           </div>
                           
-                          {/* 👇 Opacity classes updated for mobile visibility 👇 */}
                           <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover/sub:opacity-100 transition-opacity shrink-0">
+                            {/* 👇 Replaced Emojis with Icons 👇 */}
                             <button 
                               onClick={() => {
                                 setEditingSubtaskId(subtask.id);
                                 setEditingSubtaskTitle(subtask.title);
                               }} 
-                              className="text-blue-500 text-xs p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md"
+                              className="text-blue-500 p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md"
                               aria-label="Edit subtask"
                             >
-                              ✏️
+                              <Pencil className="w-3.5 h-3.5" />
                             </button>
                             <button 
                               onClick={() => deleteSubtask(subtask.id)} 
-                              className="text-red-500 text-xs p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md"
+                              className="text-red-500 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md"
                               aria-label="Delete subtask"
                             >
-                              ✕
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </>
